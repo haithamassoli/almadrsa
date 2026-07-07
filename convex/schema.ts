@@ -2,9 +2,13 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
   actorType,
+  attemptStatus,
   attendanceStatus,
   codeStatus,
+  difficulty,
+  examStatus,
   lessonSource,
+  questionType,
   studentStatus,
 } from "./lib/validators";
 
@@ -107,6 +111,61 @@ export default defineSchema({
   })
     .index("by_lessonId_and_studentId", ["lessonId", "studentId"])
     .index("by_studentId_and_date", ["studentId", "date"]),
+
+  // ——— Exam engine v1 (MCQ + true/false) ———
+  questions: defineTable({
+    teacherId: v.string(), // creator, Better Auth user id
+    subjectId: v.id("subjects"),
+    type: questionType,
+    text: v.string(),
+    options: v.array(v.object({ id: v.string(), text: v.string() })), // mcq 2–6; truefalse []
+    correctOptionId: v.optional(v.string()), // mcq only
+    correctBool: v.optional(v.boolean()), // truefalse only
+    topic: v.optional(v.string()),
+    difficulty: difficulty,
+    archived: v.boolean(),
+  })
+    .index("by_subjectId", ["subjectId"])
+    .index("by_teacherId", ["teacherId"]),
+
+  exams: defineTable({
+    title: v.string(),
+    teacherId: v.string(), // Better Auth user id (owner)
+    classId: v.id("classes"),
+    subjectId: v.id("subjects"),
+    // 1–100 items, enforced in mutations. Marks are frozen per exam so later
+    // question edits never change published grading.
+    questions: v.array(
+      v.object({ questionId: v.id("questions"), marks: v.number() }),
+    ),
+    windowStart: v.number(), // ms
+    windowEnd: v.number(), // ms
+    timeLimitMinutes: v.number(),
+    status: examStatus,
+    totalMarks: v.number(), // denormalized sum of question marks
+    closeFnId: v.optional(v.id("_scheduled_functions")), // auto-close at windowEnd
+  })
+    .index("by_teacherId", ["teacherId"])
+    .index("by_classId_and_status", ["classId", "status"]),
+
+  examAttempts: defineTable({
+    examId: v.id("exams"),
+    studentId: v.id("students"),
+    startedAt: v.number(),
+    deadlineAt: v.number(), // min(startedAt + timeLimit, windowEnd)
+    submittedAt: v.optional(v.number()),
+    status: attemptStatus,
+    answers: v.record(v.id("questions"), v.union(v.string(), v.boolean())),
+    autoScore: v.optional(v.number()), // set on submit/expire/close
+    maxScore: v.number(), // exam.totalMarks at start time
+    overrideScore: v.optional(v.number()),
+    overrideBy: v.optional(v.string()), // Better Auth user id
+    overrideAt: v.optional(v.number()),
+    expireFnId: v.optional(v.id("_scheduled_functions")), // auto-submit at deadline
+  })
+    .index("by_examId_and_studentId", ["examId", "studentId"])
+    .index("by_examId", ["examId"])
+    .index("by_studentId", ["studentId"]),
 
   // ——— Student/parent code auth (custom, hash-only) ———
   accessCodes: defineTable({

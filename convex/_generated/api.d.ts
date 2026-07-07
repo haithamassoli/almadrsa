@@ -10,15 +10,19 @@
 
 import type * as academics from "../academics.js";
 import type * as app from "../app.js";
+import type * as attempts from "../attempts.js";
 import type * as attendance from "../attendance.js";
 import type * as auth from "../auth.js";
 import type * as codes from "../codes.js";
+import type * as exams from "../exams.js";
 import type * as http from "../http.js";
 import type * as lessons from "../lessons.js";
 import type * as lib_audit from "../lib/audit.js";
 import type * as lib_crypto from "../lib/crypto.js";
 import type * as lib_dates from "../lib/dates.js";
+import type * as lib_grading from "../lib/grading.js";
 import type * as lib_validators from "../lib/validators.js";
+import type * as questions from "../questions.js";
 import type * as seed from "../seed.js";
 import type * as staff from "../staff.js";
 import type * as studentAuth from "../studentAuth.js";
@@ -34,15 +38,19 @@ import type {
 declare const fullApi: ApiFromModules<{
   academics: typeof academics;
   app: typeof app;
+  attempts: typeof attempts;
   attendance: typeof attendance;
   auth: typeof auth;
   codes: typeof codes;
+  exams: typeof exams;
   http: typeof http;
   lessons: typeof lessons;
   "lib/audit": typeof lib_audit;
   "lib/crypto": typeof lib_crypto;
   "lib/dates": typeof lib_dates;
+  "lib/grading": typeof lib_grading;
   "lib/validators": typeof lib_validators;
+  questions: typeof questions;
   seed: typeof seed;
   staff: typeof staff;
   studentAuth: typeof studentAuth;

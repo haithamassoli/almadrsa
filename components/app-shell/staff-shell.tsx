@@ -7,6 +7,8 @@ import { useQuery } from "convex/react";
 import {
   CalendarDays,
   ClipboardCheck,
+  ClipboardList,
+  FileQuestion,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -58,6 +60,12 @@ const NAV: Record<Role, NavItem[]> = {
       labelKey: "nav.attendance",
       icon: ClipboardCheck,
     },
+    {
+      href: "/teacher/questions",
+      labelKey: "nav.questions",
+      icon: FileQuestion,
+    },
+    { href: "/teacher/exams", labelKey: "nav.exams", icon: ClipboardList },
   ],
 };
 

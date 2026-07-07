@@ -14,6 +14,8 @@ export const nav = {
   // Teacher navigation
   teacherHome: "الرئيسية",
   attendance: "الحضور",
+  questions: "بنك الأسئلة",
+  exams: "الاختبارات",
   // Dashboard landing copy
   greeting: "أهلًا، {name}",
   adminHomeTitle: "لوحة تحكم المدرسة",

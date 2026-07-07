@@ -47,12 +47,12 @@ Ships: teacher opens today's lesson and marks attendance in under a minute.
 ### M4 — Exam engine v1 (MCQ + True/False)
 Ships: full exam cycle — build, schedule, take on a phone, instant results.
 
-- [ ] Question bank CRUD: MCQ + True/False, tags subject / topic (optional) / difficulty
-- [ ] Exam builder: pick questions manually or filter from bank; set window, time limit, marks
-- [ ] Attempt lifecycle: start within window, per-exam timer, continuous autosave (server + local buffer), resume after disconnect
-- [ ] Auto-close + auto-submit at window end (Convex scheduled function)
-- [ ] Instant auto-grade on submit; student sees result immediately
-- [ ] Teacher results table per exam; manual score override (audit-logged)
+- [x] Question bank CRUD: MCQ + True/False, tags subject / topic (optional) / difficulty
+- [x] Exam builder: pick questions manually or filter from bank; set window, time limit, marks
+- [x] Attempt lifecycle: start within window, per-exam timer, continuous autosave (server + local buffer), resume after disconnect
+- [x] Auto-close + auto-submit at window end (Convex scheduled function)
+- [x] Instant auto-grade on submit; student sees result immediately
+- [x] Teacher results table per exam; manual score override (audit-logged)
 
 ### M5 — Portal, announcements, notification center
 Ships: parents stop asking — results, attendance, notes, announcements, all live.

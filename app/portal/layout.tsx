@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
-import { GraduationCap, LogOut } from "lucide-react";
+import { ClipboardList, GraduationCap, Home, LogOut } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -14,6 +15,48 @@ import {
   studentFetch,
   useStudentSession,
 } from "@/lib/student-session";
+import { cn } from "@/lib/utils";
+import type { MessageKey } from "@/lib/i18n";
+
+const PORTAL_NAV: {
+  href: string;
+  labelKey: MessageKey;
+  icon: React.ComponentType<{ className?: string }>;
+}[] = [
+  { href: "/portal", labelKey: "portal.navHome", icon: Home },
+  { href: "/portal/exams", labelKey: "portal.navExams", icon: ClipboardList },
+];
+
+function PortalNav() {
+  const pathname = usePathname();
+  return (
+    <nav className="sticky bottom-0 z-10 border-t bg-background/95 backdrop-blur">
+      <div className="mx-auto flex max-w-2xl items-stretch">
+        {PORTAL_NAV.map((item) => {
+          const active =
+            item.href === "/portal"
+              ? pathname === item.href
+              : pathname.startsWith(item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium transition-colors",
+                active
+                  ? "text-primary"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <item.icon className="size-5" aria-hidden />
+              {t(item.labelKey)}
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
 
 export default function PortalLayout({
   children,
@@ -78,7 +121,10 @@ export default function PortalLayout({
           {t("auth.signOut")}
         </Button>
       </header>
-      <main className="flex flex-1 flex-col p-4">{children}</main>
+      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col p-4">
+        {children}
+      </main>
+      <PortalNav />
     </div>
   );
 }

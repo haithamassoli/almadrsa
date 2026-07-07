@@ -10,6 +10,9 @@ import { weights } from "./weights";
 import { timetable } from "./timetable";
 import { lessons } from "./lessons";
 import { attendance } from "./attendance";
+import { questions } from "./questions";
+import { exams } from "./exams";
+import { examsPortal } from "./examsPortal";
 
 // One namespace file per feature area so parallel work never edits the same
 // file. All namespaces are pre-registered here — add keys in YOUR namespace
@@ -27,4 +30,7 @@ export const ar = {
   timetable,
   lessons,
   attendance,
+  questions,
+  exams,
+  examsPortal,
 } as const;

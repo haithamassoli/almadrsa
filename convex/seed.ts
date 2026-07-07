@@ -217,6 +217,151 @@ export const seedTimetable = internalMutation({
   },
 });
 
+// ——— M4 demo question bank ———
+
+type DemoQuestion = {
+  type: "mcq" | "truefalse";
+  text: string;
+  options: Array<{ id: string; text: string }>;
+  correctOptionId?: string;
+  correctBool?: boolean;
+  topic: string;
+  difficulty: "easy" | "medium" | "hard";
+};
+
+const DEMO_QUESTIONS: Array<DemoQuestion> = [
+  {
+    type: "mcq",
+    text: "كم عدد الصلوات المفروضة في اليوم والليلة؟",
+    options: [
+      { id: "a", text: "ثلاث صلوات" },
+      { id: "b", text: "أربع صلوات" },
+      { id: "c", text: "خمس صلوات" },
+      { id: "d", text: "ست صلوات" },
+    ],
+    correctOptionId: "c",
+    topic: "الصلاة",
+    difficulty: "easy",
+  },
+  {
+    type: "mcq",
+    text: "كم عدد ركعات صلاة المغرب؟",
+    options: [
+      { id: "a", text: "ركعتان" },
+      { id: "b", text: "ثلاث ركعات" },
+      { id: "c", text: "أربع ركعات" },
+      { id: "d", text: "خمس ركعات" },
+    ],
+    correctOptionId: "b",
+    topic: "الصلاة",
+    difficulty: "easy",
+  },
+  {
+    type: "mcq",
+    text: "أيٌّ مما يلي من نواقض الوضوء؟",
+    options: [
+      { id: "a", text: "الأكل والشرب" },
+      { id: "b", text: "النوم العميق" },
+      { id: "c", text: "المشي" },
+      { id: "d", text: "الكلام" },
+    ],
+    correctOptionId: "b",
+    topic: "الوضوء",
+    difficulty: "medium",
+  },
+  {
+    type: "mcq",
+    text: "بأي ركن تبدأ الصلاة؟",
+    options: [
+      { id: "a", text: "تكبيرة الإحرام" },
+      { id: "b", text: "قراءة الفاتحة" },
+      { id: "c", text: "الركوع" },
+      { id: "d", text: "السجود" },
+    ],
+    correctOptionId: "a",
+    topic: "الصلاة",
+    difficulty: "hard",
+  },
+  {
+    type: "truefalse",
+    text: "الوضوء شرط لصحة الصلاة.",
+    options: [],
+    correctBool: true,
+    topic: "الوضوء",
+    difficulty: "easy",
+  },
+  {
+    type: "truefalse",
+    text: "صلاة الفجر أربع ركعات.",
+    options: [],
+    correctBool: false,
+    topic: "الصلاة",
+    difficulty: "medium",
+  },
+];
+
+/**
+ * M4 demo question bank for the first demo subject (التربية الإسلامية),
+ * owned by the demo teacher: 4 MCQ + 2 true/false in Arabic, mixed
+ * difficulty. Idempotent — skipped when the subject already has ANY
+ * question. Returns the number of questions created.
+ *   npx convex run seed:seedQuestions '{}'
+ */
+export const seedQuestions = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    // Resolve the demo grade → first demo subject exactly as seedDemo
+    // created them.
+    const gradesAtOrder = await ctx.db
+      .query("grades")
+      .withIndex("by_order", (q) => q.eq("order", DEMO_GRADE_ORDER))
+      .take(10);
+    const grade = gradesAtOrder.find((g) => g.name === DEMO_GRADE_NAME);
+    if (!grade) return 0;
+    const gradeSubjects = await ctx.db
+      .query("subjects")
+      .withIndex("by_gradeId", (q) => q.eq("gradeId", grade._id))
+      .take(50);
+    const subject = gradeSubjects.find((s) => s.name === DEMO_SUBJECTS[0]);
+    if (!subject) return 0;
+
+    // Idempotent: the demo subject already has a question bank.
+    const existing = await ctx.db
+      .query("questions")
+      .withIndex("by_subjectId", (q) => q.eq("subjectId", subject._id))
+      .first();
+    if (existing) return 0;
+
+    // The demo teacher's Better Auth user id, by email (as in seedDemo).
+    const teacher: { _id: string; userId?: string | null } | null =
+      await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [{ field: "email", value: DEMO_TEACHER_EMAIL }],
+      });
+    if (!teacher) return 0;
+    const teacherId = teacher.userId ?? teacher._id;
+
+    let created = 0;
+    for (const question of DEMO_QUESTIONS) {
+      await ctx.db.insert("questions", {
+        teacherId,
+        subjectId: subject._id,
+        type: question.type,
+        text: question.text,
+        options: question.options,
+        correctOptionId: question.correctOptionId,
+        correctBool: question.correctBool,
+        topic: question.topic,
+        difficulty: question.difficulty,
+        archived: false,
+      });
+      created++;
+    }
+    return created;
+  },
+});
+
 /**
  * Dev/CLI-only helper (internal — unreachable from clients): issue a code for
  * a student through the SAME core path as api.codes.issueCode, without a

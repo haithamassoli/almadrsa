@@ -1,4 +1,6 @@
 export const portal = {
+  navHome: "الرئيسية",
+  navExams: "الاختبارات",
   greeting: "أهلًا، {name}",
   subtitle: "بوابة الطالب وولي الأمر",
   soonTitle: "بوابتك قيد الإعداد",
