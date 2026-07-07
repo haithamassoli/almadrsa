@@ -14,6 +14,8 @@ import {
   Megaphone,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { InstallPrompt } from "@/components/install-prompt";
+import { PushSubscribe } from "@/components/push-subscribe";
 import { LogoMark } from "@/components/app-shell/logo-mark";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -166,6 +168,8 @@ export default function PortalLayout({
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col p-4">
         {children}
       </main>
+      <InstallPrompt />
+      <PushSubscribe />
       <PortalNav sessionToken={sessionToken} />
     </div>
   );

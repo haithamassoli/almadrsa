@@ -382,6 +382,21 @@ export default defineSchema({
     .index("by_studentId_and_termId", ["studentId", "termId"])
     .index("by_classId_and_termId", ["classId", "termId"]),
 
+  // ——— M12: web-push subscriptions ———
+  // One row per browser push endpoint. Endpoints are unique (upsert by
+  // endpoint); a shared family device re-subscribing under another student
+  // reassigns the row. Keys are the browser-issued ECDH/auth secrets — they
+  // are only useful together with the school's VAPID private key.
+  pushSubscriptions: defineTable({
+    studentId: v.id("students"),
+    endpoint: v.string(),
+    p256dh: v.string(),
+    auth: v.string(),
+    userAgent: v.optional(v.string()),
+  })
+    .index("by_studentId", ["studentId"])
+    .index("by_endpoint", ["endpoint"]),
+
   // ——— Cross-cutting ———
   auditLog: defineTable({
     actorType: actorType,

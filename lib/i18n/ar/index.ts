@@ -22,6 +22,8 @@ import { analytics } from "./analytics";
 import { progress } from "./progress";
 import { reports } from "./reports";
 import { checkin } from "./checkin";
+import { pwa } from "./pwa";
+import { pushUi } from "./pushUi";
 
 // One namespace file per feature area so parallel work never edits the same
 // file. All namespaces are pre-registered here — add keys in YOUR namespace
@@ -51,4 +53,6 @@ export const ar = {
   progress,
   reports,
   checkin,
+  pwa,
+  pushUi,
 } as const;

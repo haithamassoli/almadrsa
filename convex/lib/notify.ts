@@ -1,5 +1,6 @@
 import type { MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
+import { internal } from "../_generated/api";
 import type { NotificationType } from "./validators";
 
 /**
@@ -7,6 +8,11 @@ import type { NotificationType } from "./validators";
  * mutation that caused the event, so the notifications commit (or roll back)
  * atomically with it. One row per recipient; bounded everywhere. Notification
  * copy is composed in Arabic at the call site — the server has no i18n layer.
+ *
+ * M12 — after the in-app rows are inserted, each fan-out call also schedules
+ * ONE web-push delivery action (convex/pushActions.ts) covering all its
+ * recipients. The scheduler only fires if the surrounding mutation commits,
+ * so a push can never outrun (or survive a rollback of) its in-app row.
  */
 
 export type NotificationPayload = {
@@ -20,7 +26,25 @@ export type NotificationPayload = {
 /** Hard cap on recipients of a single fan-out (single-school scale). */
 const MAX_FANOUT = 2000;
 
-/** Insert one notification per student (ids deduped, capped at 2000). */
+/**
+ * Where the push notification opens the portal. Mirrors the client's
+ * `notificationHref` mapping (app/portal/notifications/page.tsx); anything
+ * unmapped lands on the notification center itself.
+ */
+function pushUrlFor(payload: NotificationPayload): string {
+  if (payload.refType === "exam" && payload.refId) {
+    return `/portal/exams/${payload.refId}`;
+  }
+  if (payload.refType === "announcement") return "/portal/announcements";
+  if (payload.refType === "report") return "/portal/reports";
+  if (payload.refType === "attendance") return "/portal/attendance";
+  return "/portal/notifications";
+}
+
+/**
+ * Insert one notification per student (ids deduped, capped at 2000), then
+ * schedule exactly one web-push delivery for the whole batch.
+ */
 export async function notifyStudents(
   ctx: MutationCtx,
   studentIds: Array<Id<"students">>,
@@ -36,6 +60,14 @@ export async function notifyStudents(
       read: false,
       refType: payload.refType,
       refId: payload.refId,
+    });
+  }
+  if (unique.length > 0) {
+    await ctx.scheduler.runAfter(0, internal.pushActions.deliver, {
+      studentIds: unique,
+      title: payload.title,
+      body: payload.body,
+      url: pushUrlFor(payload),
     });
   }
 }

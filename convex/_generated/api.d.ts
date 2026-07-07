@@ -33,6 +33,8 @@ import type * as lib_validators from "../lib/validators.js";
 import type * as notes from "../notes.js";
 import type * as notifications from "../notifications.js";
 import type * as portal from "../portal.js";
+import type * as push from "../push.js";
+import type * as pushActions from "../pushActions.js";
 import type * as questions from "../questions.js";
 import type * as reports from "../reports.js";
 import type * as seed from "../seed.js";
@@ -73,6 +75,8 @@ declare const fullApi: ApiFromModules<{
   notes: typeof notes;
   notifications: typeof notifications;
   portal: typeof portal;
+  push: typeof push;
+  pushActions: typeof pushActions;
   questions: typeof questions;
   reports: typeof reports;
   seed: typeof seed;

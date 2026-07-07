@@ -123,10 +123,10 @@ Ships: end-of-term report card as PDF; QR check-in.
 ### M12 — PWA & push
 Ships: installable app that pings parents.
 
-- [ ] Manifest, icons, install prompt (with iOS install hint)
-- [ ] Service worker: offline app shell
-- [ ] Web Push subscribe/send behind the notification-channel abstraction
-- [ ] Push delivery for all existing triggers; in-app center stays source of truth
+- [x] Manifest, icons, install prompt (with iOS install hint)
+- [x] Service worker: offline app shell
+- [x] Web Push subscribe/send behind the notification-channel abstraction
+- [x] Push delivery for all existing triggers; in-app center stays source of truth
 
 ## Phase 3 — ecosystem & integrity
 
