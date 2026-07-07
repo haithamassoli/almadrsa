@@ -115,10 +115,10 @@ Ships: role-scoped dashboards and live leaderboards.
 ### M11 — Report cards & attendance v2
 Ships: end-of-term report card as PDF; QR check-in.
 
-- [ ] Term report computation from grade weights: subject grades, attendance summary, teacher remarks
-- [ ] Admin publish flow; parents see published cards only
-- [ ] PDF export with correct Arabic RTL rendering
-- [ ] QR check-in attendance option
+- [x] Term report computation from grade weights: subject grades, attendance summary, teacher remarks
+- [x] Admin publish flow; parents see published cards only
+- [x] PDF export with correct Arabic RTL rendering (print-optimized sheet → browser save-as-PDF; native Arabic shaping)
+- [x] QR check-in attendance option
 
 ### M12 — PWA & push
 Ships: installable app that pings parents.

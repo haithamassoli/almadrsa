@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   FileQuestion,
+  FileText,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -67,6 +68,7 @@ const NAV: Record<Role, NavItem[]> = {
       labelKey: "nav.analytics",
       icon: TrendingUp,
     },
+    { href: "/admin/reports", labelKey: "nav.reports", icon: FileText },
     {
       href: "/admin/announcements",
       labelKey: "nav.announcements",

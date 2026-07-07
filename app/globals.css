@@ -160,3 +160,47 @@
     @apply relative rounded-xl border border-dashed bg-card p-4;
   }
 }
+
+/*
+ * M11 report cards — print. The browser's print/save-as-PDF is the report's
+ * PDF export path: only the .report-print sheet stays visible, the app
+ * chrome hides. `.print-hide` removes on-screen-only controls entirely.
+ */
+@media print {
+  body *:not(.report-print):not(.report-print *) {
+    visibility: hidden;
+  }
+  .report-print,
+  .report-print * {
+    visibility: visible;
+  }
+  .report-print {
+    position: absolute;
+    inset-inline-start: 0;
+    top: 0;
+    width: 100%;
+    border: 0;
+  }
+  .print-hide {
+    display: none !important;
+  }
+  /* A dark-theme session still prints ink on paper: re-pin the tokens the
+     sheet uses to their light values inside the printed subtree only. */
+  .dark .report-print {
+    --background: oklch(0.984 0.004 85);
+    --foreground: oklch(0.2 0.02 220);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.2 0.02 220);
+    --primary: oklch(0.46 0.085 195);
+    --primary-foreground: oklch(0.985 0.005 180);
+    --secondary: oklch(0.945 0.015 180);
+    --secondary-foreground: oklch(0.32 0.05 200);
+    --muted: oklch(0.955 0.007 85);
+    --muted-foreground: oklch(0.5 0.02 220);
+    --accent: oklch(0.95 0.035 85);
+    --accent-foreground: oklch(0.4 0.07 60);
+    --destructive: oklch(0.577 0.215 27);
+    --success: oklch(0.55 0.12 150);
+    --border: oklch(0.905 0.01 85);
+  }
+}

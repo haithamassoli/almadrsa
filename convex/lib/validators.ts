@@ -48,7 +48,8 @@ export const attemptStatus = v.union(
   v.literal("submitted"),
 );
 
-// M5 — portal, notes, announcements & notifications (M9 adds "homework")
+// M5 — portal, notes, announcements & notifications (M9 adds "homework",
+// M11 adds "report")
 export const notificationType = v.union(
   v.literal("exam_published"),
   v.literal("result"),
@@ -56,6 +57,7 @@ export const notificationType = v.union(
   v.literal("note"),
   v.literal("announcement"),
   v.literal("homework"),
+  v.literal("report"),
 );
 export const announcementScope = v.union(
   v.literal("school"),
@@ -64,6 +66,12 @@ export const announcementScope = v.union(
 
 // M9 — homework
 export const homeworkStatus = v.union(v.literal("open"), v.literal("closed"));
+
+// M11 — term report cards
+export const reportStatus = v.union(
+  v.literal("draft"),
+  v.literal("published"),
+);
 
 export type StaffRole = "admin" | "teacher";
 export type AttendanceStatus = "present" | "absent" | "late";
@@ -84,6 +92,8 @@ export type NotificationType =
   | "absence"
   | "note"
   | "announcement"
-  | "homework";
+  | "homework"
+  | "report";
 export type AnnouncementScope = "school" | "class";
 export type HomeworkStatus = "open" | "closed";
+export type ReportStatus = "draft" | "published";

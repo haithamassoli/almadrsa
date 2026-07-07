@@ -12,6 +12,7 @@ import {
   lessonSource,
   notificationType,
   questionType,
+  reportStatus,
   studentStatus,
 } from "./lib/validators";
 
@@ -274,7 +275,7 @@ export default defineSchema({
     title: v.string(),
     body: v.string(),
     read: v.boolean(),
-    refType: v.optional(v.string()), // "exam" · "note" · "announcement" · "attendance" · "homework"
+    refType: v.optional(v.string()), // "exam" · "note" · "announcement" · "attendance" · "homework" · "report"
     refId: v.optional(v.string()),
   })
     .index("by_studentId", ["studentId"])
@@ -337,6 +338,49 @@ export default defineSchema({
     .index("by_homeworkId_and_studentId", ["homeworkId", "studentId"])
     .index("by_homeworkId", ["homeworkId"])
     .index("by_studentId", ["studentId"]),
+
+  // ——— M11: term report cards ———
+  // One snapshot per (student, term), recomputed on demand while draft and
+  // frozen forever once published. Subject rows denormalize names/weights at
+  // compute time so later renames or weight edits never rewrite history.
+  reportCards: defineTable({
+    studentId: v.id("students"),
+    termId: v.id("terms"),
+    classId: v.id("classes"), // class the snapshot was computed against
+    status: reportStatus, // draft (recomputable) · published (immutable)
+    remarks: v.optional(v.string()), // teacher remarks, ≤2000 — mutations enforce
+    subjects: v.array(
+      v.object({
+        subjectId: v.id("subjects"),
+        subjectName: v.string(), // denormalized at compute
+        // Component averages 0–100 (1dp); undefined = no data in the term.
+        examsPct: v.optional(v.number()),
+        homeworkPct: v.optional(v.number()),
+        participationPct: v.optional(v.number()),
+        // The gradeWeights row (or the 60/20/20 default) as of compute time.
+        weights: v.object({
+          exams: v.number(),
+          homework: v.number(),
+          participation: v.number(),
+        }),
+        // Weighted over the AVAILABLE components (weights renormalized);
+        // 0 when no component has data.
+        finalPct: v.number(),
+      }),
+    ),
+    // Whole-class attendance summary for the term (all subjects).
+    attendance: v.object({
+      present: v.number(),
+      late: v.number(),
+      absent: v.number(),
+      rate: v.number(), // (present+late)/marked · 100, 1dp; 0 when unmarked
+    }),
+    computedAt: v.number(),
+    publishedAt: v.optional(v.number()),
+    publishedBy: v.optional(v.string()), // Better Auth user id
+  })
+    .index("by_studentId_and_termId", ["studentId", "termId"])
+    .index("by_classId_and_termId", ["classId", "termId"]),
 
   // ——— Cross-cutting ———
   auditLog: defineTable({

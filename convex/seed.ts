@@ -3,6 +3,7 @@ import { internalAction, internalMutation } from "./_generated/server";
 import { components, internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { createAuth } from "./auth";
+import { mintQrToken } from "./checkin";
 import { issueCodeCore } from "./codes";
 import { createHomeworkCore } from "./homework";
 import { notifyAllActiveStudents } from "./lib/notify";
@@ -687,5 +688,53 @@ export const e2eBootstrap = internalMutation({
       actorId: "system",
     });
     return { code, studentName: `${student.firstName} ${student.lastName}` };
+  },
+});
+
+// ——— M11 demo term (report cards need a term covering the demo data) ———
+
+const CURRENT_TERM_NAME = "الفصل التجريبي الحالي";
+
+/**
+ * M11 dev helper (internal — unreachable from clients): ensure a term whose
+ * window COVERS TODAY (±60 days) exists, so report cards computed over the
+ * demo exams/homework/attendance — all dated around "now" — come out
+ * non-empty. The seeded academic terms start months away, which would make
+ * every generated card blank. Created INACTIVE (activation stays with
+ * academics.setActiveTerm and its single-active invariant). Idempotent by
+ * name; returns the term id either way.
+ *   npx convex run seed:seedCurrentTerm '{}'
+ */
+export const seedCurrentTerm = internalMutation({
+  args: {},
+  returns: v.id("terms"),
+  handler: async (ctx) => {
+    const terms = await ctx.db.query("terms").take(100);
+    const existing = terms.find((term) => term.name === CURRENT_TERM_NAME);
+    if (existing) return existing._id;
+    const now = Date.now();
+    const sixtyDays = 60 * 24 * 60 * 60 * 1000;
+    return await ctx.db.insert("terms", {
+      name: CURRENT_TERM_NAME,
+      startDate: now - sixtyDays,
+      endDate: now + sixtyDays,
+      active: false,
+    });
+  },
+});
+
+/**
+ * M11 dev helper (internal — unreachable from clients): mint a QR check-in
+ * token for a lesson through the SAME core as checkin.issueToken, without a
+ * staff session. Lets local smoke tests exercise the student checkIn flow.
+ *   npx convex run seed:devQrToken '{"lessonId":"..."}'
+ */
+export const devQrToken = internalMutation({
+  args: { lessonId: v.id("lessons") },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    const lesson = await ctx.db.get("lessons", args.lessonId);
+    if (!lesson) throw new Error("Lesson not found");
+    return await mintQrToken(ctx, args.lessonId);
   },
 });

@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import { mutation, query, type MutationCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { requireTeacher } from "./auth";
 import { awardForAttendance } from "./gamification";
 import { getOwnedLesson } from "./lessons";
@@ -16,6 +16,67 @@ import { attendanceStatus, type AttendanceStatus } from "./lib/validators";
  * errors use `ConvexError` codes the RTL UI maps to Arabic messages:
  *   not_found · too_many_entries
  */
+
+/**
+ * Upsert ONE (lesson, student) attendance row — the single write path shared
+ * by the teacher marking sheet (bulkMark) and the M11 QR check-in
+ * (checkin.checkIn). Patches or inserts the row (classId/date denormalized
+ * from the lesson) and fires the M6 gamification hook on a transition INTO
+ * present/late — re-saving the same status stays silent (awardOnce dedupes
+ * per row regardless). Returns the row id and the status it had before
+ * (null = not marked yet) so callers can detect transitions (bulkMark's
+ * absence notifications). Enrollment/authorization stay with the callers.
+ */
+export async function markOneAttendance(
+  ctx: MutationCtx,
+  args: {
+    lesson: Doc<"lessons">;
+    studentId: Id<"students">;
+    status: AttendanceStatus;
+    markedBy: string; // Better Auth user id, or "qr" for self check-in
+  },
+): Promise<{
+  attendanceId: Id<"attendance">;
+  previousStatus: AttendanceStatus | null;
+}> {
+  const existing = await ctx.db
+    .query("attendance")
+    .withIndex("by_lessonId_and_studentId", (q) =>
+      q.eq("lessonId", args.lesson._id).eq("studentId", args.studentId),
+    )
+    .unique();
+  let attendanceId: Id<"attendance">;
+  if (existing) {
+    await ctx.db.patch("attendance", existing._id, {
+      status: args.status,
+      markedBy: args.markedBy,
+      updatedAt: Date.now(),
+    });
+    attendanceId = existing._id;
+  } else {
+    attendanceId = await ctx.db.insert("attendance", {
+      lessonId: args.lesson._id,
+      studentId: args.studentId,
+      classId: args.lesson.classId,
+      date: args.lesson.date,
+      status: args.status,
+      markedBy: args.markedBy,
+      updatedAt: Date.now(),
+    });
+  }
+  if (
+    (args.status === "present" || args.status === "late") &&
+    existing?.status !== args.status
+  ) {
+    await awardForAttendance(ctx, {
+      studentId: args.studentId,
+      attendanceId,
+      status: args.status,
+      date: args.lesson.date,
+    });
+  }
+  return { attendanceId, previousStatus: existing?.status ?? null };
+}
 
 /**
  * The marking sheet for a lesson: every actively enrolled student of the
@@ -105,53 +166,21 @@ export const bulkMark = mutation({
       enrollments.map((enrollment) => enrollment.studentId),
     );
 
-    const now = Date.now();
     const newlyAbsent: Array<Id<"students">> = [];
     for (const entry of args.entries) {
       if (!enrolled.has(entry.studentId)) continue;
-      const existing = await ctx.db
-        .query("attendance")
-        .withIndex("by_lessonId_and_studentId", (q) =>
-          q.eq("lessonId", args.lessonId).eq("studentId", entry.studentId),
-        )
-        .unique();
+      // Shared single-row upsert (also the QR check-in write path): patches
+      // or inserts, and fires the M6 award on a transition into present/late.
+      const { previousStatus } = await markOneAttendance(ctx, {
+        lesson,
+        studentId: entry.studentId,
+        status: entry.status,
+        markedBy: staff.id,
+      });
       // M5: notify only on a transition INTO "absent" (unmarked or another
       // status before) — re-saving an existing absence stays silent.
-      if (entry.status === "absent" && existing?.status !== "absent") {
+      if (entry.status === "absent" && previousStatus !== "absent") {
         newlyAbsent.push(entry.studentId);
-      }
-      let attendanceId: Id<"attendance">;
-      if (existing) {
-        await ctx.db.patch("attendance", existing._id, {
-          status: entry.status,
-          markedBy: staff.id,
-          updatedAt: now,
-        });
-        attendanceId = existing._id;
-      } else {
-        attendanceId = await ctx.db.insert("attendance", {
-          lessonId: args.lessonId,
-          studentId: entry.studentId,
-          classId: lesson.classId,
-          date: lesson.date,
-          status: entry.status,
-          markedBy: staff.id,
-          updatedAt: now,
-        });
-      }
-      // M6: transitions INTO present/late award points (deduped per row
-      // inside) and advance the daily streak — re-saving the same status
-      // stays silent.
-      if (
-        (entry.status === "present" || entry.status === "late") &&
-        existing?.status !== entry.status
-      ) {
-        await awardForAttendance(ctx, {
-          studentId: entry.studentId,
-          attendanceId,
-          status: entry.status,
-          date: lesson.date,
-        });
       }
     }
 

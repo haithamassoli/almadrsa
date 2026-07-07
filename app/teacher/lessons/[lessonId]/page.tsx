@@ -4,7 +4,14 @@ import { Component, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowRight, ExternalLink, Plus, SearchX, X } from "lucide-react";
+import {
+  ArrowRight,
+  ExternalLink,
+  Plus,
+  QrCode,
+  SearchX,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -46,6 +53,7 @@ import {
 import { formatDate, t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { mutationErrorText } from "../../errors";
+import { QrDialog } from "./qr-dialog";
 
 type Status = "present" | "absent" | "late";
 type Resource = { title: string; url: string };
@@ -219,6 +227,7 @@ function AttendanceCard({ lessonId }: { lessonId: Id<"lessons"> }) {
   // edits[id] ?? server status, so concurrent refreshes stay consistent.
   const [edits, setEdits] = useState<Record<string, Status>>({});
   const [pending, setPending] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
 
   const rows = roster ?? [];
   const dirtyCount = rows.reduce((count, row) => {
@@ -272,6 +281,16 @@ function AttendanceCard({ lessonId }: { lessonId: Id<"lessons"> }) {
             })}
           </CardDescription>
         ) : null}
+        <CardAction>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setQrOpen(true)}
+          >
+            <QrCode />
+            {t("checkin.qrButton")}
+          </Button>
+        </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 px-0">
         {/* Toolbar: the fast path is mark-all → save, both in thumb reach. */}
@@ -326,6 +345,7 @@ function AttendanceCard({ lessonId }: { lessonId: Id<"lessons"> }) {
           )}
         </div>
       </CardContent>
+      <QrDialog open={qrOpen} onOpenChange={setQrOpen} lessonId={lessonId} />
     </Card>
   );
 }

@@ -20,6 +20,8 @@ import { homework } from "./homework";
 import { homeworkPortal } from "./homeworkPortal";
 import { analytics } from "./analytics";
 import { progress } from "./progress";
+import { reports } from "./reports";
+import { checkin } from "./checkin";
 
 // One namespace file per feature area so parallel work never edits the same
 // file. All namespaces are pre-registered here — add keys in YOUR namespace
@@ -47,4 +49,6 @@ export const ar = {
   homeworkPortal,
   analytics,
   progress,
+  reports,
+  checkin,
 } as const;
