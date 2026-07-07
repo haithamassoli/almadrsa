@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalAction, internalMutation } from "./_generated/server";
-import { components } from "./_generated/api";
+import { components, internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import { createAuth } from "./auth";
 import { issueCodeCore } from "./codes";
 import { notifyAllActiveStudents } from "./lib/notify";
@@ -421,5 +422,70 @@ export const devIssueCode = internalMutation({
       actorId: "system",
     });
     return { code };
+  },
+});
+
+/**
+ * M7 E2E bootstrap (internal — unreachable from clients): idempotently
+ * ensures the demo dataset exists (seedDemo + seedTimetable + seedQuestions,
+ * each already a no-op when its data is present), then issues a FRESH access
+ * code for the demo student «أحمد الخطيب» (or the first active enrolled
+ * student of the demo class) through the SAME core path as api.codes.issueCode.
+ * Regenerating on every call is fine — issueCodeCore revokes the previous
+ * active code and purges its sessions/devices, exactly like a staff reissue.
+ *   npx convex run seed:e2eBootstrap '{}'
+ */
+export const e2eBootstrap = internalMutation({
+  args: {},
+  returns: v.object({ code: v.string(), studentName: v.string() }),
+  handler: async (ctx): Promise<{ code: string; studentName: string }> => {
+    await ctx.runMutation(internal.seed.seedDemo, {});
+    await ctx.runMutation(internal.seed.seedTimetable, {});
+    await ctx.runMutation(internal.seed.seedQuestions, {});
+
+    // Resolve demo grade → class exactly as the seeds created them.
+    const gradesAtOrder = await ctx.db
+      .query("grades")
+      .withIndex("by_order", (q) => q.eq("order", DEMO_GRADE_ORDER))
+      .take(10);
+    const grade = gradesAtOrder.find((g) => g.name === DEMO_GRADE_NAME);
+    if (!grade) throw new Error("Demo grade missing after seeding");
+    const classes = await ctx.db
+      .query("classes")
+      .withIndex("by_gradeId", (q) => q.eq("gradeId", grade._id))
+      .take(20);
+    const cls = classes.find((c) => c.name === DEMO_CLASS_NAME);
+    if (!cls) throw new Error("Demo class missing after seeding");
+
+    // Prefer the canonical demo student; fall back to the first active
+    // enrolled student of the class.
+    const enrollments = await ctx.db
+      .query("enrollments")
+      .withIndex("by_classId_and_active", (q) =>
+        q.eq("classId", cls._id).eq("active", true),
+      )
+      .take(200);
+    const activeStudents: Array<Doc<"students">> = [];
+    for (const enrollment of enrollments) {
+      const enrolled = await ctx.db.get("students", enrollment.studentId);
+      if (enrolled && enrolled.status === "active") {
+        activeStudents.push(enrolled);
+      }
+    }
+    const student =
+      activeStudents.find(
+        (s) =>
+          s.firstName === DEMO_STUDENTS[0].firstName &&
+          s.lastName === DEMO_STUDENTS[0].lastName,
+      ) ?? activeStudents[0];
+    if (!student) {
+      throw new Error("No active enrolled student in the demo class");
+    }
+
+    const code = await issueCodeCore(ctx, student._id, "system", {
+      actorType: "system",
+      actorId: "system",
+    });
+    return { code, studentName: `${student.firstName} ${student.lastName}` };
   },
 });

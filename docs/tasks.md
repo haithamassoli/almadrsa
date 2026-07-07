@@ -75,10 +75,10 @@ Ships: points and streaks visible in the portal.
 ### M7 — Phase 1 pilot
 Ships: one real class using it daily.
 
-- [ ] Production deploy; enable Convex automatic backups
-- [ ] Onboard real data: structure, teachers, one class + printed codes
-- [ ] E2E smoke on mobile: attendance → parent sees it; exam full cycle
-- [ ] Run pilot with one class; collect and triage feedback
+- [ ] Production deploy; enable Convex automatic backups — *manual: exact steps in [deploy.md](./deploy.md) "Production checklist" (Vercel link + dashboard backups toggle)*
+- [ ] Onboard real data: structure, teachers, one class + printed codes — *manual: follow [pilot-runbook.md](./pilot-runbook.md)*
+- [x] E2E smoke on mobile: attendance → parent sees it; exam full cycle (`npm run test:e2e`, iPhone-13 viewport)
+- [ ] Run pilot with one class; collect and triage feedback — *human task; feedback template in the runbook*
 
 ## Phase 2 — full teaching workload
 
