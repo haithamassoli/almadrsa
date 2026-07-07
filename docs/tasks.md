@@ -104,13 +104,13 @@ Ships: assign → student submits text/photo/voice → auto-close → grade.
 ### M10 — Analytics & gamification full
 Ships: role-scoped dashboards and live leaderboards.
 
-- [ ] Levels from cumulative points; badges for milestones
-- [ ] Live leaderboards: class + school
-- [ ] Charts: student/class/subject performance, trends over time
-- [ ] Student vs class average across subjects
-- [ ] Attendance pattern analysis
-- [ ] Weak-point detection from topic tags + review recommendations (untagged questions excluded)
-- [ ] Scope views: admin school-wide, teacher own classes, parent own child
+- [x] Levels from cumulative points; badges for milestones
+- [x] Live leaderboards: class + school
+- [x] Charts: student/class/subject performance, trends over time
+- [x] Student vs class average across subjects
+- [x] Attendance pattern analysis
+- [x] Weak-point detection from topic tags + review recommendations (untagged questions excluded)
+- [x] Scope views: admin school-wide, teacher own classes, parent own child
 
 ### M11 — Report cards & attendance v2
 Ships: end-of-term report card as PDF; QR check-in.

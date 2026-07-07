@@ -18,6 +18,7 @@ import {
   Network,
   Scale,
   StickyNote,
+  TrendingUp,
   Trophy,
   UserCog,
   Users,
@@ -62,6 +63,11 @@ const NAV: Record<Role, NavItem[]> = {
       icon: Trophy,
     },
     {
+      href: "/admin/analytics",
+      labelKey: "nav.analytics",
+      icon: TrendingUp,
+    },
+    {
       href: "/admin/announcements",
       labelKey: "nav.announcements",
       icon: Megaphone,
@@ -84,6 +90,11 @@ const NAV: Record<Role, NavItem[]> = {
       href: "/teacher/homework",
       labelKey: "nav.homework",
       icon: BookOpenCheck,
+    },
+    {
+      href: "/teacher/analytics",
+      labelKey: "nav.analytics",
+      icon: TrendingUp,
     },
     { href: "/teacher/notes", labelKey: "nav.notes", icon: StickyNote },
     {

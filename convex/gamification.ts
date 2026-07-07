@@ -5,9 +5,12 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
-import { requireAdmin } from "./auth";
+import type { Doc, Id } from "./_generated/dataModel";
+import { requireAdmin, requireTeacher } from "./auth";
+import { requireStudentAccount } from "./studentAuth";
+import { assertStaffCanAccessClass } from "./students";
 import { logAudit } from "./lib/audit";
+import { round2, sumManualScores } from "./lib/grading";
 import type { AttendanceStatus } from "./lib/validators";
 
 /**
@@ -19,6 +22,10 @@ import type { AttendanceStatus } from "./lib/validators";
  * defaults. Domain errors use `ConvexError` codes the RTL UI maps to Arabic
  * messages:
  *   invalid_config
+ *
+ * M10 — levels & badges (pure code, no schema) + progress/leaderboard
+ * queries. Badge/level LABELS live in the UI i18n catalog; the server only
+ * ever returns stable string ids and numbers.
  */
 
 // ——— Config ———
@@ -355,3 +362,360 @@ export async function awardForHomework(
     day: args.day,
   });
 }
+
+// ——— M10: levels & badges (pure helpers, no schema) ———
+
+/**
+ * Linear leveling: every level costs 100 points. level = 1 + ⌊points/100⌋,
+ * pointsIntoLevel = points % 100, and the next level is always 100 away.
+ * ponytail: flat 100/level; move the step into the settings config only if
+ * tuning ever actually matters.
+ */
+export function levelFor(points: number): {
+  level: number;
+  pointsIntoLevel: number;
+  nextLevelAt: number;
+} {
+  const safe = Number.isFinite(points) && points > 0 ? Math.floor(points) : 0;
+  return {
+    level: 1 + Math.floor(safe / 100),
+    pointsIntoLevel: safe % 100,
+    nextLevelAt: 100,
+  };
+}
+
+/**
+ * The fixed badge catalog, evaluated over ctx-free inputs. Returns the
+ * EARNED badge ids only — labels/icons/descriptions live in the UI i18n
+ * catalog, keyed by these stable ids.
+ */
+export function badgeIdsFor(data: {
+  totalPoints: number;
+  streak: number;
+  perfectExam: boolean;
+  homeworkCount: number;
+  attendanceCount: number;
+}): Array<string> {
+  const earned: Array<string> = [];
+  if (data.totalPoints >= 100) earned.push("points_100");
+  if (data.totalPoints >= 500) earned.push("points_500");
+  if (data.totalPoints >= 1000) earned.push("points_1000");
+  if (data.streak >= 7) earned.push("streak_7");
+  if (data.streak >= 30) earned.push("streak_30");
+  if (data.perfectExam) earned.push("perfect_exam");
+  if (data.homeworkCount >= 10) earned.push("homework_10");
+  if (data.attendanceCount >= 30) earned.push("attendance_30");
+  return earned;
+}
+
+// ——— M10: leaderboards & progress ———
+
+type StandingRow = {
+  studentId: Id<"students">;
+  name: string;
+  totalPoints: number;
+  level: number;
+};
+
+const leaderboardRowValidator = v.object({
+  rank: v.number(),
+  name: v.string(),
+  totalPoints: v.number(),
+  level: v.number(),
+});
+
+const studentLeaderboardRowValidator = v.object({
+  rank: v.number(),
+  name: v.string(),
+  totalPoints: v.number(),
+  level: v.number(),
+  isMe: v.boolean(),
+});
+
+/**
+ * A class's active roster joined with gamification docs (students without a
+ * doc stand at 0 points), sorted desc by totalPoints. Bounded to 200
+ * students — the app-wide class roster cap.
+ */
+async function classStandings(
+  ctx: QueryCtx,
+  classId: Id<"classes">,
+): Promise<Array<StandingRow>> {
+  const enrollments = await ctx.db
+    .query("enrollments")
+    .withIndex("by_classId_and_active", (q) =>
+      q.eq("classId", classId).eq("active", true),
+    )
+    .take(200);
+  const rows: Array<StandingRow> = [];
+  for (const enrollment of enrollments) {
+    const student = await ctx.db.get("students", enrollment.studentId);
+    // Deleted students cascade enrollments; archived students may retain a
+    // stray active enrollment (e.g. re-enrolled after archive) — skip both so
+    // the class board matches schoolStandings and never leaks archived rows.
+    if (!student || student.status === "archived") continue;
+    const doc = await ctx.db
+      .query("gamification")
+      .withIndex("by_studentId", (q) =>
+        q.eq("studentId", enrollment.studentId),
+      )
+      .unique();
+    const totalPoints = doc?.totalPoints ?? 0;
+    rows.push({
+      studentId: enrollment.studentId,
+      name: `${student.firstName} ${student.lastName}`,
+      totalPoints,
+      level: levelFor(totalPoints).level,
+    });
+  }
+  rows.sort((a, b) => b.totalPoints - a.totalPoints);
+  return rows;
+}
+
+/**
+ * School-wide top rows straight off the by_totalPoints index (desc).
+ * Archived/deleted students are skipped AFTER the take, so fewer than
+ * `limit` rows can come back — acceptable for a top-20 board; bump the take
+ * if archived high-scorers ever crowd it out. Exported for
+ * analytics.adminOverview (top-5 reuse).
+ */
+export async function schoolStandings(
+  ctx: QueryCtx,
+  limit: number,
+): Promise<Array<StandingRow>> {
+  const docs = await ctx.db
+    .query("gamification")
+    .withIndex("by_totalPoints")
+    .order("desc")
+    .take(limit);
+  const rows: Array<StandingRow> = [];
+  for (const doc of docs) {
+    const student = await ctx.db.get("students", doc.studentId);
+    if (!student || student.status === "archived") continue;
+    rows.push({
+      studentId: doc.studentId,
+      name: `${student.firstName} ${student.lastName}`,
+      totalPoints: doc.totalPoints,
+      level: levelFor(doc.totalPoints).level,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Early-exit probe: does the exam reference ≥1 essay question? Bounded by
+ * the exam's ≤100 questions. Mirrors attempts.examHasEssay (not exported
+ * there — importing attempts here would create an import cycle).
+ */
+async function examReferencesEssay(
+  ctx: QueryCtx,
+  exam: Doc<"exams">,
+): Promise<boolean> {
+  for (const examQuestion of exam.questions) {
+    const question = await ctx.db.get("questions", examQuestion.questionId);
+    if (question?.type === "essay") return true;
+  }
+  return false;
+}
+
+/**
+ * The student's own progress card: points, streak, level, earned badges and
+ * class/school ranks. Ranks are positional in the same orderings the
+ * leaderboard queries show, so the numbers always agree on screen.
+ */
+export const myProgress = query({
+  args: { sessionToken: v.string() },
+  returns: v.object({
+    totalPoints: v.number(),
+    streak: v.number(),
+    level: v.number(),
+    pointsIntoLevel: v.number(),
+    nextLevelAt: v.number(),
+    badges: v.array(v.string()),
+    classRank: v.union(v.number(), v.null()),
+    classSize: v.number(),
+    schoolRank: v.union(v.number(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const { studentId } = await requireStudentAccount(ctx, args.sessionToken);
+    const doc = await ctx.db
+      .query("gamification")
+      .withIndex("by_studentId", (q) => q.eq("studentId", studentId))
+      .unique();
+    const totalPoints = doc?.totalPoints ?? 0;
+    const streak = doc?.streak ?? 0;
+
+    // Badge event counts: newest 1000 point events bound the scan — the
+    // 10/30 badge thresholds saturate far below the cap, so the only effect
+    // of the cap is on students with >1000 events (already all-badged).
+    const events = await ctx.db
+      .query("pointEvents")
+      .withIndex("by_studentId", (q) => q.eq("studentId", studentId))
+      .order("desc")
+      .take(1000);
+    let homeworkCount = 0;
+    let attendanceCount = 0;
+    for (const event of events) {
+      if (event.kind === "homework") homeworkCount++;
+      else if (event.kind === "attendance") attendanceCount++;
+    }
+
+    // perfect_exam: any FINAL submitted attempt at full marks. Final means
+    // gradedAt stamped or essay-free — the portal.examClassStats gate — so a
+    // half-graded essay exam can never award the badge early. The cheap
+    // score check runs first; the essay probe only fires on candidates.
+    const attempts = await ctx.db
+      .query("examAttempts")
+      .withIndex("by_studentId", (q) => q.eq("studentId", studentId))
+      .order("desc")
+      .take(200);
+    let perfectExam = false;
+    const essayByExam = new Map<Id<"exams">, boolean>();
+    for (const attempt of attempts) {
+      if (attempt.status !== "submitted" || attempt.maxScore <= 0) continue;
+      const effective =
+        attempt.overrideScore ??
+        round2(
+          (attempt.autoScore ?? 0) + sumManualScores(attempt.manualScores),
+        );
+      if (effective !== attempt.maxScore) continue;
+      if (attempt.gradedAt === undefined) {
+        let referencesEssay = essayByExam.get(attempt.examId);
+        if (referencesEssay === undefined) {
+          const exam = await ctx.db.get("exams", attempt.examId);
+          referencesEssay = exam
+            ? await examReferencesEssay(ctx, exam)
+            : false;
+          essayByExam.set(attempt.examId, referencesEssay);
+        }
+        if (referencesEssay) continue; // score not final yet
+      }
+      perfectExam = true;
+      break;
+    }
+
+    // Class rank among active classmates (first active class, roster ≤200).
+    const enrollment = await ctx.db
+      .query("enrollments")
+      .withIndex("by_studentId_and_active", (q) =>
+        q.eq("studentId", studentId).eq("active", true),
+      )
+      .first();
+    let classRank: number | null = null;
+    let classSize = 0;
+    if (enrollment) {
+      const standings = await classStandings(ctx, enrollment.classId);
+      classSize = standings.length;
+      const index = standings.findIndex((row) => row.studentId === studentId);
+      classRank = index >= 0 ? index + 1 : null;
+    }
+
+    // School rank straight off the points index. Beyond the top 500 the
+    // rank simply isn't shown (null) rather than paying for a deeper scan;
+    // a student with no gamification doc yet is also null.
+    const top = await ctx.db
+      .query("gamification")
+      .withIndex("by_totalPoints")
+      .order("desc")
+      .take(500);
+    const schoolIndex = top.findIndex((row) => row.studentId === studentId);
+    const schoolRank = schoolIndex >= 0 ? schoolIndex + 1 : null;
+
+    const { level, pointsIntoLevel, nextLevelAt } = levelFor(totalPoints);
+    return {
+      totalPoints,
+      streak,
+      level,
+      pointsIntoLevel,
+      nextLevelAt,
+      badges: badgeIdsFor({
+        totalPoints,
+        streak,
+        perfectExam,
+        homeworkCount,
+        attendanceCount,
+      }),
+      classRank,
+      classSize,
+      schoolRank,
+    };
+  },
+});
+
+/**
+ * Top 20 of the student's own class (first active class; empty array when
+ * not enrolled anywhere). Rows carry isMe so the UI can highlight the
+ * caller without ever exposing other students' ids.
+ */
+export const classLeaderboard = query({
+  args: { sessionToken: v.string() },
+  returns: v.array(studentLeaderboardRowValidator),
+  handler: async (ctx, args) => {
+    const { studentId } = await requireStudentAccount(ctx, args.sessionToken);
+    const enrollment = await ctx.db
+      .query("enrollments")
+      .withIndex("by_studentId_and_active", (q) =>
+        q.eq("studentId", studentId).eq("active", true),
+      )
+      .first();
+    if (!enrollment) return [];
+    const standings = await classStandings(ctx, enrollment.classId);
+    return standings.slice(0, 20).map((row, index) => ({
+      rank: index + 1,
+      name: row.name,
+      totalPoints: row.totalPoints,
+      level: row.level,
+      isMe: row.studentId === studentId,
+    }));
+  },
+});
+
+/** Top 20 of the whole school (archived students skipped). */
+export const schoolLeaderboard = query({
+  args: { sessionToken: v.string() },
+  returns: v.array(studentLeaderboardRowValidator),
+  handler: async (ctx, args) => {
+    const { studentId } = await requireStudentAccount(ctx, args.sessionToken);
+    const standings = await schoolStandings(ctx, 20);
+    return standings.map((row, index) => ({
+      rank: index + 1,
+      name: row.name,
+      totalPoints: row.totalPoints,
+      level: row.level,
+      isMe: row.studentId === studentId,
+    }));
+  },
+});
+
+/** Staff view of one class's top 20 (teacher must be assigned; admin any). */
+export const staffClassLeaderboard = query({
+  args: { classId: v.id("classes") },
+  returns: v.array(leaderboardRowValidator),
+  handler: async (ctx, args) => {
+    const staff = await requireTeacher(ctx);
+    await assertStaffCanAccessClass(ctx, staff, args.classId);
+    const standings = await classStandings(ctx, args.classId);
+    return standings.slice(0, 20).map((row, index) => ({
+      rank: index + 1,
+      name: row.name,
+      totalPoints: row.totalPoints,
+      level: row.level,
+    }));
+  },
+});
+
+/** Staff view of the school-wide top 20. */
+export const staffSchoolLeaderboard = query({
+  args: {},
+  returns: v.array(leaderboardRowValidator),
+  handler: async (ctx) => {
+    await requireTeacher(ctx);
+    const standings = await schoolStandings(ctx, 20);
+    return standings.map((row, index) => ({
+      rank: index + 1,
+      name: row.name,
+      totalPoints: row.totalPoints,
+      level: row.level,
+    }));
+  },
+});

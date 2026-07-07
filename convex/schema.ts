@@ -301,7 +301,9 @@ export default defineSchema({
     totalPoints: v.number(),
     streak: v.number(), // consecutive active days (≤3-day gaps tolerated)
     lastActiveDay: v.optional(v.string()), // "YYYY-MM-DD"; only moves forward
-  }).index("by_studentId", ["studentId"]),
+  })
+    .index("by_studentId", ["studentId"])
+    .index("by_totalPoints", ["totalPoints"]), // M10: school leaderboard / rank scans
 
   // ——— M9: homework ———
   homework: defineTable({

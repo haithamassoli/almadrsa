@@ -7,7 +7,14 @@ import {
   studentAnnouncementValidator,
 } from "./announcements";
 import { staffNamesById } from "./notes";
-import { round2, sumManualScores } from "./lib/grading";
+import { loadQuestionDocs } from "./exams";
+import { weekdayOf } from "./lib/dates";
+import {
+  hasEssay,
+  isAnswerCorrect,
+  round2,
+  sumManualScores,
+} from "./lib/grading";
 import { attendanceStatus, type AttendanceStatus } from "./lib/validators";
 
 /**
@@ -344,5 +351,277 @@ export const examClassStats = query({
       myScore: effectiveOf(myAttempt) ?? 0,
       maxScore: myAttempt.maxScore,
     };
+  },
+});
+
+/** Chart-label truncation (long Arabic exam titles crowd axis labels). */
+function truncateLabel(s: string, max: number): string {
+  return s.length <= max ? s : s.slice(0, max - 1) + "…";
+}
+
+/**
+ * M10 — the student's own analytics screen in one round trip. Everything
+ * derives from the caller's OWN rows; the only cross-student numbers are
+ * per-exam class averages over exams the student themselves took — the same
+ * aggregate examClassStats already exposes per exam, never per student.
+ *
+ * "Graded" attempt = submitted with a FINAL score: essay-free, or every
+ * essay manually graded (gradedAt) — the examClassStats gate. Effective
+ * score = override ?? round2(auto + Σ manual); pct is over the attempt's
+ * frozen maxScore.
+ *
+ * [from, to] are "YYYY-MM-DD" keys and scope ONLY attendanceByWeekday; exam
+ * numbers use the student's whole (bounded) attempt history.
+ */
+export const studentAnalytics = query({
+  args: { sessionToken: v.string(), from: v.string(), to: v.string() },
+  returns: v.object({
+    subjectComparison: v.array(
+      v.object({
+        subjectName: v.string(),
+        myAvgPct: v.number(), // 1dp, 0–100
+        classAvgPct: v.number(), // 1dp, 0–100
+      }),
+    ),
+    scoreTrend: v.array(
+      v.object({ label: v.string(), pct: v.number() }), // oldest → newest
+    ),
+    attendanceByWeekday: v.array(
+      v.object({
+        weekday: v.number(), // 0=Sunday … 4=Thursday (school week)
+        present: v.number(),
+        late: v.number(),
+        absent: v.number(),
+      }),
+    ),
+    weakTopics: v.array(
+      v.object({
+        topic: v.string(),
+        subjectName: v.string(),
+        pct: v.number(),
+      }),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const { studentId } = await requireStudentAccount(ctx, args.sessionToken);
+
+    // ——— Own graded attempts, newest first. The scan reads the newest 200
+    // attempts; the newest 50 SUBMITTED ones are considered further — this
+    // cap bounds the per-exam class-average scans below and comfortably
+    // covers a school year of exams. ———
+    const attempts = await ctx.db
+      .query("examAttempts")
+      .withIndex("by_studentId", (q) => q.eq("studentId", studentId))
+      .order("desc")
+      .take(200);
+    const submitted = attempts
+      .filter((attempt) => attempt.status === "submitted")
+      .sort((a, b) => (b.submittedAt ?? 0) - (a.submittedAt ?? 0))
+      .slice(0, 50);
+
+    const examCache = new Map<Id<"exams">, Doc<"exams"> | null>();
+    const questionDocsCache = new Map<
+      Id<"exams">,
+      Map<string, Doc<"questions">>
+    >();
+    const docsOf = async (
+      exam: Doc<"exams">,
+    ): Promise<Map<string, Doc<"questions">>> => {
+      let docs = questionDocsCache.get(exam._id);
+      if (!docs) {
+        docs = await loadQuestionDocs(ctx, exam.questions);
+        questionDocsCache.set(exam._id, docs);
+      }
+      return docs;
+    };
+
+    type GradedAttempt = {
+      attempt: Doc<"examAttempts">;
+      exam: Doc<"exams">;
+      pct: number; // 1dp
+    };
+    const graded: Array<GradedAttempt> = [];
+    for (const attempt of submitted) {
+      let exam = examCache.get(attempt.examId);
+      if (exam === undefined) {
+        exam = await ctx.db.get("exams", attempt.examId);
+        examCache.set(attempt.examId, exam);
+      }
+      if (!exam || attempt.maxScore <= 0) continue; // defensive
+      const docs = await docsOf(exam);
+      if (hasEssay(exam.questions, docs) && attempt.gradedAt === undefined) {
+        continue; // essay exam still being graded — score not final
+      }
+      const effective =
+        attempt.overrideScore ??
+        round2(
+          (attempt.autoScore ?? 0) + sumManualScores(attempt.manualScores),
+        );
+      graded.push({
+        attempt,
+        exam,
+        pct: Math.round((effective / attempt.maxScore) * 1000) / 10,
+      });
+    }
+
+    // ——— Score trend: newest 10 graded attempts, chronological. ———
+    const scoreTrend = graded
+      .slice(0, 10)
+      .map((entry) => ({
+        label: truncateLabel(entry.exam.title, 20),
+        pct: entry.pct,
+      }))
+      .reverse();
+
+    // ——— Subject comparison. Class average per exam pools the pcts of
+    // every FINAL submitted attempt (take 200/exam — roster cap, one
+    // attempt per student); each exam then weighs equally per subject, the
+    // same weighting the student's own average gets (one attempt = one
+    // exam). Computed once per distinct exam. ———
+    const classAvgByExam = new Map<Id<"exams">, number | null>();
+    const classAvgOf = async (entry: GradedAttempt): Promise<number | null> => {
+      const cached = classAvgByExam.get(entry.exam._id);
+      if (cached !== undefined) return cached;
+      const docs = await docsOf(entry.exam);
+      const examHasEssay = hasEssay(entry.exam.questions, docs);
+      const rows = await ctx.db
+        .query("examAttempts")
+        .withIndex("by_examId", (q) => q.eq("examId", entry.exam._id))
+        .take(200);
+      const pcts: Array<number> = [];
+      for (const row of rows) {
+        if (row.status !== "submitted" || row.maxScore <= 0) continue;
+        if (examHasEssay && row.gradedAt === undefined) continue;
+        const effective =
+          row.overrideScore ??
+          round2((row.autoScore ?? 0) + sumManualScores(row.manualScores));
+        pcts.push((effective / row.maxScore) * 100);
+      }
+      const avg =
+        pcts.length > 0
+          ? pcts.reduce((sum, pct) => sum + pct, 0) / pcts.length
+          : null;
+      classAvgByExam.set(entry.exam._id, avg);
+      return avg;
+    };
+
+    const bySubject = new Map<
+      Id<"subjects">,
+      { my: Array<number>; cls: Array<number> }
+    >();
+    for (const entry of graded) {
+      let bucket = bySubject.get(entry.exam.subjectId);
+      if (!bucket) {
+        bucket = { my: [], cls: [] };
+        bySubject.set(entry.exam.subjectId, bucket);
+      }
+      bucket.my.push(entry.pct);
+      const classAvg = await classAvgOf(entry);
+      if (classAvg !== null) bucket.cls.push(classAvg);
+    }
+    const subjectNames = new Map<Id<"subjects">, string>();
+    const subjectNameOf = async (
+      subjectId: Id<"subjects">,
+    ): Promise<string> => {
+      let name = subjectNames.get(subjectId);
+      if (name === undefined) {
+        const subject = await ctx.db.get("subjects", subjectId);
+        name = subject?.name ?? "";
+        subjectNames.set(subjectId, name);
+      }
+      return name;
+    };
+    const mean = (values: Array<number>): number =>
+      values.reduce((sum, value) => sum + value, 0) / values.length;
+    const subjectComparison = [];
+    for (const [subjectId, bucket] of bySubject) {
+      subjectComparison.push({
+        subjectName: await subjectNameOf(subjectId),
+        myAvgPct: Math.round(mean(bucket.my) * 10) / 10,
+        classAvgPct:
+          bucket.cls.length > 0 ? Math.round(mean(bucket.cls) * 10) / 10 : 0,
+      });
+    }
+
+    // ——— Attendance by weekday over [from, to] (take 300 — matches the
+    // portal history bound). School week is Sun–Thu; Fri/Sat rows (odd
+    // ad-hoc lessons) are skipped. ———
+    const attendanceRows = await ctx.db
+      .query("attendance")
+      .withIndex("by_studentId_and_date", (q) =>
+        q
+          .eq("studentId", studentId)
+          .gte("date", args.from)
+          .lte("date", args.to),
+      )
+      .take(300);
+    const attendanceByWeekday = [0, 1, 2, 3, 4].map((weekday) => ({
+      weekday,
+      present: 0,
+      late: 0,
+      absent: 0,
+    }));
+    for (const row of attendanceRows) {
+      const weekday = weekdayOf(row.date);
+      if (weekday > 4) continue;
+      attendanceByWeekday[weekday][row.status]++;
+    }
+
+    // ——— Own weak topics over the newest ≤20 graded attempts. Correctness
+    // is lib/grading.isAnswerCorrect (the gradeAnswers rules; fillblank/
+    // matching count only at full marks — binary tally). Unanswered tallies
+    // as incorrect; essays and untagged questions are excluded. Topics are
+    // keyed per subject — the same topic name in two subjects is two
+    // topics. ———
+    const topicTally = new Map<
+      string,
+      { topic: string; subjectId: Id<"subjects">; correct: number; total: number }
+    >();
+    for (const entry of graded.slice(0, 20)) {
+      const docs = await docsOf(entry.exam);
+      for (const examQuestion of entry.exam.questions) {
+        const question = docs.get(examQuestion.questionId);
+        if (!question || question.type === "essay") continue;
+        const topic = question.topic?.trim();
+        if (topic === undefined || topic.length === 0) continue;
+        const key = `${entry.exam.subjectId}:${topic}`;
+        let tally = topicTally.get(key);
+        if (!tally) {
+          tally = {
+            topic,
+            subjectId: entry.exam.subjectId,
+            correct: 0,
+            total: 0,
+          };
+          topicTally.set(key, tally);
+        }
+        tally.total++;
+        if (
+          isAnswerCorrect(question, entry.attempt.answers[examQuestion.questionId])
+        ) {
+          tally.correct++;
+        }
+      }
+    }
+    const weakCandidates = [...topicTally.values()]
+      .filter((tally) => tally.total >= 3)
+      .map((tally) => ({
+        topic: tally.topic,
+        subjectId: tally.subjectId,
+        pct: Math.round((tally.correct / tally.total) * 100),
+      }))
+      .filter((tally) => tally.pct < 60)
+      .sort((a, b) => a.pct - b.pct)
+      .slice(0, 3);
+    const weakTopics = [];
+    for (const candidate of weakCandidates) {
+      weakTopics.push({
+        topic: candidate.topic,
+        subjectName: await subjectNameOf(candidate.subjectId),
+        pct: candidate.pct,
+      });
+    }
+
+    return { subjectComparison, scoreTrend, attendanceByWeekday, weakTopics };
   },
 });

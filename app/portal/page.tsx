@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { ArrowLeft, Flame, Sparkles } from "lucide-react";
+import { ArrowLeft, ChevronLeft, Flame, Sparkles } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -128,7 +128,10 @@ function GamificationStrip({
   gamification: HomeData["gamification"];
 }) {
   return (
-    <div className="flex gap-3">
+    <Link
+      href="/portal/progress"
+      className="group flex items-stretch gap-3 rounded-2xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+    >
       <GamificationPill
         icon={<Sparkles className="size-5" />}
         label={t("gamification.points")}
@@ -139,7 +142,14 @@ function GamificationStrip({
         label={t("gamification.streak")}
         value={formatNumber(gamification.streak)}
       />
-    </div>
+      <span
+        aria-hidden
+        className="flex items-center text-muted-foreground transition-colors group-hover:text-primary group-focus-visible:text-primary"
+      >
+        <ChevronLeft className="size-5" />
+      </span>
+      <span className="sr-only">{t("progress.openFromHome")}</span>
+    </Link>
   );
 }
 

@@ -111,6 +111,25 @@ function gradeOne(
   }
 }
 
+/**
+ * M10 — binary correctness for topic analytics (weak-topic tallies). Routes
+ * through the SAME gradeOne that gradeAnswers uses, so the per-type rules can
+ * never drift between grading and analytics: grading a question at 1 mark
+ * yields exactly 1 iff the answer is fully correct. fillblank/matching
+ * therefore count as correct ONLY at full marks (every blank / every pair
+ * right) — partial credit stays a grading concern; the topic tally is
+ * deliberately binary for simplicity. Essays and missing answers are never
+ * "correct" (callers exclude essays from tallies anyway).
+ */
+export function isAnswerCorrect(
+  question: Doc<"questions">,
+  answer: StoredAnswer | undefined,
+): boolean {
+  if (answer === undefined || question.type === "essay") return false;
+  // correct/total === 1 exactly when everything matched, so no float fuzz.
+  return gradeOne(question, 1, answer) === 1;
+}
+
 /** Sum of per-question contributions, rounded to 2dp (float drift). */
 export function gradeAnswers(
   examQuestions: Array<{ questionId: string; marks: number }>,
