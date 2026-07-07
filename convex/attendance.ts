@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireTeacher } from "./auth";
+import { awardForAttendance } from "./gamification";
 import { getOwnedLesson } from "./lessons";
 import { assertStaffCanAccessStudent } from "./students";
 import { logAudit } from "./lib/audit";
@@ -119,14 +120,16 @@ export const bulkMark = mutation({
       if (entry.status === "absent" && existing?.status !== "absent") {
         newlyAbsent.push(entry.studentId);
       }
+      let attendanceId: Id<"attendance">;
       if (existing) {
         await ctx.db.patch("attendance", existing._id, {
           status: entry.status,
           markedBy: staff.id,
           updatedAt: now,
         });
+        attendanceId = existing._id;
       } else {
-        await ctx.db.insert("attendance", {
+        attendanceId = await ctx.db.insert("attendance", {
           lessonId: args.lessonId,
           studentId: entry.studentId,
           classId: lesson.classId,
@@ -134,6 +137,20 @@ export const bulkMark = mutation({
           status: entry.status,
           markedBy: staff.id,
           updatedAt: now,
+        });
+      }
+      // M6: transitions INTO present/late award points (deduped per row
+      // inside) and advance the daily streak — re-saving the same status
+      // stays silent.
+      if (
+        (entry.status === "present" || entry.status === "late") &&
+        existing?.status !== entry.status
+      ) {
+        await awardForAttendance(ctx, {
+          studentId: entry.studentId,
+          attendanceId,
+          status: entry.status,
+          date: lesson.date,
         });
       }
     }

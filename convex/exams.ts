@@ -9,6 +9,7 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireTeacher, type StaffUser } from "./auth";
+import { awardForExam } from "./gamification";
 import { logAudit } from "./lib/audit";
 import { gradeAnswers } from "./lib/grading";
 import { formatDateAr, notifyClass, notifyStudents } from "./lib/notify";
@@ -186,6 +187,9 @@ async function closeSweep(
 
   const questionDocs = await loadQuestionDocs(ctx, exam.questions);
   const now = Date.now();
+  // M6: swept auto-submissions earn exam points too (UTC day key — same
+  // convention as attempts.submit).
+  const day = new Date(now).toISOString().slice(0, 10);
   for (const attempt of inProgress) {
     const autoScore = gradeAnswers(
       exam.questions,
@@ -201,6 +205,14 @@ async function closeSweep(
     if (attempt.expireFnId !== undefined) {
       await ctx.scheduler.cancel(attempt.expireFnId);
     }
+    // M6: award exam points on the swept auto score.
+    await awardForExam(ctx, {
+      studentId: attempt.studentId,
+      attemptId: attempt._id,
+      autoScore,
+      maxScore: attempt.maxScore,
+      day,
+    });
     // M5: the sweep just made this attempt's result final — notify.
     await notifyStudents(ctx, [attempt.studentId], {
       type: "result",

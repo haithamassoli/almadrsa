@@ -232,6 +232,25 @@ export default defineSchema({
     .index("by_studentId", ["studentId"])
     .index("by_studentId_and_read", ["studentId", "read"]),
 
+  // ——— M6: gamification v1 (points + streaks) ———
+  pointEvents: defineTable({
+    studentId: v.id("students"),
+    kind: v.union(v.literal("attendance"), v.literal("exam")),
+    points: v.number(),
+    refType: v.string(), // "attendance" · "attempt"
+    refId: v.string(), // id of the awarding row — the dedupe key
+    day: v.string(), // "YYYY-MM-DD"
+  })
+    .index("by_studentId", ["studentId"])
+    .index("by_refType_and_refId", ["refType", "refId"]),
+
+  gamification: defineTable({
+    studentId: v.id("students"),
+    totalPoints: v.number(),
+    streak: v.number(), // consecutive active days (≤3-day gaps tolerated)
+    lastActiveDay: v.optional(v.string()), // "YYYY-MM-DD"; only moves forward
+  }).index("by_studentId", ["studentId"]),
+
   // ——— Cross-cutting ———
   auditLog: defineTable({
     actorType: actorType,

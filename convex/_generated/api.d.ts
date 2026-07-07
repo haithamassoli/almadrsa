@@ -16,6 +16,7 @@ import type * as attendance from "../attendance.js";
 import type * as auth from "../auth.js";
 import type * as codes from "../codes.js";
 import type * as exams from "../exams.js";
+import type * as gamification from "../gamification.js";
 import type * as http from "../http.js";
 import type * as lessons from "../lessons.js";
 import type * as lib_audit from "../lib/audit.js";
@@ -49,6 +50,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   codes: typeof codes;
   exams: typeof exams;
+  gamification: typeof gamification;
   http: typeof http;
   lessons: typeof lessons;
   "lib/audit": typeof lib_audit;

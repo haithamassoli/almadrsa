@@ -68,9 +68,9 @@ Ships: parents stop asking — results, attendance, notes, announcements, all li
 ### M6 — Gamification v1
 Ships: points and streaks visible in the portal.
 
-- [ ] Point events: attendance, exam score thresholds; values admin-configurable
-- [ ] Streaks (consecutive active school days)
-- [ ] Points + streak display in portal
+- [x] Point events: attendance, exam score thresholds; values admin-configurable
+- [x] Streaks (consecutive active school days)
+- [x] Points + streak display in portal
 
 ### M7 — Phase 1 pilot
 Ships: one real class using it daily.

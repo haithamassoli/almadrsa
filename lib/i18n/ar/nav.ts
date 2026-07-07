@@ -10,6 +10,7 @@ export const nav = {
   codes: "رموز الدخول",
   staff: "الطاقم",
   weights: "أوزان الدرجات",
+  gamification: "التحفيز",
   timetable: "الجدول الدراسي",
   // Teacher navigation
   teacherHome: "الرئيسية",

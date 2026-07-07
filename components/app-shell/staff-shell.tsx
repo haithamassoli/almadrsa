@@ -17,6 +17,7 @@ import {
   Network,
   Scale,
   StickyNote,
+  Trophy,
   UserCog,
   Users,
 } from "lucide-react";
@@ -54,6 +55,11 @@ const NAV: Record<Role, NavItem[]> = {
     { href: "/admin/codes", labelKey: "nav.codes", icon: KeyRound },
     { href: "/admin/staff", labelKey: "nav.staff", icon: UserCog },
     { href: "/admin/weights", labelKey: "nav.weights", icon: Scale },
+    {
+      href: "/admin/gamification",
+      labelKey: "nav.gamification",
+      icon: Trophy,
+    },
     {
       href: "/admin/announcements",
       labelKey: "nav.announcements",

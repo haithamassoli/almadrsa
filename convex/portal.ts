@@ -57,6 +57,10 @@ export const home = query({
       absent: v.number(),
       rate: v.number(), // 0–100 integer; 0 when nothing marked yet
     }),
+    gamification: v.object({
+      totalPoints: v.number(),
+      streak: v.number(), // consecutive active days
+    }),
     notes: v.array(
       v.object({
         text: v.string(),
@@ -157,6 +161,12 @@ export const home = query({
         ? 0
         : Math.round(((totals.present + totals.late) / marked) * 100);
 
+    // M6: points + streak (zeros until the first award lands).
+    const gamificationDoc = await ctx.db
+      .query("gamification")
+      .withIndex("by_studentId", (q) => q.eq("studentId", studentId))
+      .unique();
+
     // Newest 3 teacher notes with author names.
     const noteRows = await ctx.db
       .query("notes")
@@ -184,6 +194,10 @@ export const home = query({
       todayLessons,
       recentResults,
       attendance: { ...totals, rate },
+      gamification: {
+        totalPoints: gamificationDoc?.totalPoints ?? 0,
+        streak: gamificationDoc?.streak ?? 0,
+      },
       notes,
       announcements,
     };

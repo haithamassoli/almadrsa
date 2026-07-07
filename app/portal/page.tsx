@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Flame, Sparkles } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -89,6 +89,56 @@ function HomeSkeleton() {
       {Array.from({ length: 3 }).map((_, i) => (
         <Skeleton key={i} className="h-40 rounded-2xl" />
       ))}
+    </div>
+  );
+}
+
+// ——— Gamification strip (points + streak) ———
+
+function GamificationPill({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <Card className="flex-1 rounded-2xl">
+      <CardContent className="flex items-center gap-3">
+        <span
+          aria-hidden
+          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted/50 text-accent"
+        >
+          {icon}
+        </span>
+        <div className="flex min-w-0 flex-col">
+          <span className="text-xs text-muted-foreground">{label}</span>
+          <span className="text-2xl font-black tabular-nums">{value}</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function GamificationStrip({
+  gamification,
+}: {
+  gamification: HomeData["gamification"];
+}) {
+  return (
+    <div className="flex gap-3">
+      <GamificationPill
+        icon={<Sparkles className="size-5" />}
+        label={t("gamification.points")}
+        value={formatNumber(gamification.totalPoints)}
+      />
+      <GamificationPill
+        icon={<Flame className="size-5" />}
+        label={t("gamification.streak")}
+        value={formatNumber(gamification.streak)}
+      />
     </div>
   );
 }
@@ -351,6 +401,7 @@ export default function PortalHome() {
         <p className="text-sm text-muted-foreground">{t("portal.subtitle")}</p>
       </div>
 
+      <GamificationStrip gamification={home.gamification} />
       <TodayCard lessons={home.todayLessons} />
       <ResultsCard results={home.recentResults} />
       <AttendanceCard summary={home.attendance} />

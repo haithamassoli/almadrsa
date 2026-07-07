@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { requireStudentAccount } from "./studentAuth";
 import { loadQuestionDocs } from "./exams";
+import { awardForExam } from "./gamification";
 import { logAudit } from "./lib/audit";
 import { gradeAnswers } from "./lib/grading";
 import { notifyStudents } from "./lib/notify";
@@ -387,6 +388,15 @@ export const submit = mutation({
     if (attempt.expireFnId !== undefined) {
       await ctx.scheduler.cancel(attempt.expireFnId);
     }
+    // M6: exam points on the auto score at submit time. The day key is UTC —
+    // acceptable drift around midnight (streaks don't read exam days).
+    await awardForExam(ctx, {
+      studentId,
+      attemptId: args.attemptId,
+      autoScore,
+      maxScore: attempt.maxScore,
+      day: new Date().toISOString().slice(0, 10),
+    });
     // M5: the auto-graded result is final at submit — notify the student.
     if (exam) {
       await notifyStudents(ctx, [studentId], {
@@ -447,6 +457,14 @@ export const expire = internalMutation({
         refId: attempt.examId,
       });
     }
+    // M6: expiry finalizes the score, so it awards exam points like submit.
+    await awardForExam(ctx, {
+      studentId: attempt.studentId,
+      attemptId: args.attemptId,
+      autoScore,
+      maxScore: attempt.maxScore,
+      day: new Date().toISOString().slice(0, 10),
+    });
     return null;
   },
 });
