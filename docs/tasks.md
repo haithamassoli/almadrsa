@@ -28,13 +28,13 @@ Ships: staff log in with email/password, a student/parent logs in with a code; e
 ### M2 — Academic structure & people
 Ships: admin sets up the whole school; every student has a code.
 
-- [ ] CRUD: grades, subjects, classes/sections, terms (admin UI)
-- [ ] Teacher ↔ (subject, class) assignments
-- [ ] Students CRUD + class enrollment
-- [ ] CSV bulk import with validation and per-row error report
-- [ ] Bulk issue/print access codes per class
-- [ ] Per-subject grade weights (exams/homework/participation %)
-- [ ] Audit log on account create/disable/delete
+- [x] CRUD: grades, subjects, classes/sections, terms (admin UI)
+- [x] Teacher ↔ (subject, class) assignments
+- [x] Students CRUD + class enrollment
+- [x] CSV bulk import with validation and per-row error report
+- [x] Bulk issue/print access codes per class
+- [x] Per-subject grade weights (exams/homework/participation %)
+- [x] Audit log on account create/disable/delete
 
 ### M3 — Timetable, lessons, attendance
 Ships: teacher opens today's lesson and marks attendance in under a minute.

@@ -1,10 +1,8 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery } from "convex/react";
 import { GraduationCap } from "lucide-react";
-import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -21,7 +19,7 @@ import { t } from "@/lib/i18n";
 
 /**
  * Only same-origin absolute paths are honored for `?redirect=`. Rejecting
- * `//host` and `/\host` closes the open-redirect vector that a bare
+ * `//host` and `/\host` closes the open-redirect vector a bare
  * `startsWith("/")` check would leave open.
  */
 function safeRedirect(value: string | null): string | null {
@@ -33,20 +31,10 @@ function safeRedirect(value: string | null): string | null {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const user = useQuery(api.staff.currentUser);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-
-  // Redirect the moment an authenticated staff identity is available. This
-  // covers a fresh sign-in (currentUser flips null→user once Convex auth
-  // propagates) as well as an already-signed-in visitor hitting /login.
-  useEffect(() => {
-    if (!user) return;
-    const home = user.role === "admin" ? "/admin" : "/teacher";
-    router.replace(safeRedirect(searchParams.get("redirect")) ?? home);
-  }, [user, router, searchParams]);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -59,22 +47,19 @@ function LoginForm() {
         setPending(false);
         return;
       }
-      // Success — keep the button pending; the effect navigates as soon as
-      // currentUser resolves. (Banned accounts fail at signIn, so a resolved
-      // session always yields a real user here.)
+      // Read the role straight off the fresh session; the shell guard is the
+      // real gate (it bounces a wrong-area landing), so this only picks the
+      // starting screen. Keep pending true — the navigation unmounts the form.
+      const session = await authClient.getSession();
+      const role = session.data?.user
+        ? (session.data.user as { role?: string }).role
+        : undefined;
+      const home = role === "admin" ? "/admin" : "/teacher";
+      router.replace(safeRedirect(searchParams.get("redirect")) ?? home);
     } catch {
       setError(t("common.errorGeneric"));
       setPending(false);
     }
-  }
-
-  // Authenticated → mid-redirect: show a spinner rather than the form.
-  if (user) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <Spinner className="size-6 text-muted-foreground" />
-      </div>
-    );
   }
 
   return (

@@ -98,7 +98,13 @@ export function StaffShell({
     user === null || (user !== undefined && user.role !== role);
   useEffect(() => {
     if (user === null) {
-      router.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
+      // Preserve a deep target for post-login, but for the area root itself
+      // (the common sign-out case) land on a clean /login.
+      router.replace(
+        pathname === `/${role}`
+          ? "/login"
+          : `/login?redirect=${encodeURIComponent(pathname)}`,
+      );
     } else if (user && user.role !== role) {
       router.replace(user.role === "admin" ? "/admin" : "/teacher");
     }
