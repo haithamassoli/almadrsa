@@ -49,7 +49,7 @@ export const attemptStatus = v.union(
 );
 
 // M5 — portal, notes, announcements & notifications (M9 adds "homework",
-// M11 adds "report")
+// M11 adds "report", M13 adds "message")
 export const notificationType = v.union(
   v.literal("exam_published"),
   v.literal("result"),
@@ -58,6 +58,7 @@ export const notificationType = v.union(
   v.literal("announcement"),
   v.literal("homework"),
   v.literal("report"),
+  v.literal("message"),
 );
 export const announcementScope = v.union(
   v.literal("school"),
@@ -72,6 +73,10 @@ export const reportStatus = v.union(
   v.literal("draft"),
   v.literal("published"),
 );
+
+// M13 — teacher↔parent messaging: who authored a message. "staff" covers
+// teachers and admins; "student" covers the shared student/parent account.
+export const senderType = v.union(v.literal("staff"), v.literal("student"));
 
 export type StaffRole = "admin" | "teacher";
 export type AttendanceStatus = "present" | "absent" | "late";
@@ -93,7 +98,9 @@ export type NotificationType =
   | "note"
   | "announcement"
   | "homework"
-  | "report";
+  | "report"
+  | "message";
 export type AnnouncementScope = "school" | "class";
 export type HomeworkStatus = "open" | "closed";
 export type ReportStatus = "draft" | "published";
+export type SenderType = "staff" | "student";

@@ -30,6 +30,7 @@ import type * as lib_grading from "../lib/grading.js";
 import type * as lib_notify from "../lib/notify.js";
 import type * as lib_shuffle from "../lib/shuffle.js";
 import type * as lib_validators from "../lib/validators.js";
+import type * as messages from "../messages.js";
 import type * as notes from "../notes.js";
 import type * as notifications from "../notifications.js";
 import type * as portal from "../portal.js";
@@ -72,6 +73,7 @@ declare const fullApi: ApiFromModules<{
   "lib/notify": typeof lib_notify;
   "lib/shuffle": typeof lib_shuffle;
   "lib/validators": typeof lib_validators;
+  messages: typeof messages;
   notes: typeof notes;
   notifications: typeof notifications;
   portal: typeof portal;

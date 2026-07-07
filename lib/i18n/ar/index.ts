@@ -24,6 +24,11 @@ import { reports } from "./reports";
 import { checkin } from "./checkin";
 import { pwa } from "./pwa";
 import { pushUi } from "./pushUi";
+import { messagesUi } from "./messagesUi";
+import { messagesPortal } from "./messagesPortal";
+import { library } from "./library";
+import { calendarUi } from "./calendarUi";
+import { settingsUi } from "./settingsUi";
 
 // One namespace file per feature area so parallel work never edits the same
 // file. All namespaces are pre-registered here — add keys in YOUR namespace
@@ -55,4 +60,9 @@ export const ar = {
   checkin,
   pwa,
   pushUi,
+  messagesUi,
+  messagesPortal,
+  library,
+  calendarUi,
+  settingsUi,
 } as const;

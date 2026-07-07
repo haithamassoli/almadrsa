@@ -7,10 +7,13 @@ import { useQuery } from "convex/react";
 import {
   BookOpenCheck,
   CalendarDays,
+  CalendarRange,
   ClipboardCheck,
   ClipboardList,
   FileQuestion,
   FileText,
+  Library,
+  MessageSquare,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -18,6 +21,7 @@ import {
   Menu,
   Network,
   Scale,
+  Settings,
   StickyNote,
   TrendingUp,
   Trophy,
@@ -70,6 +74,12 @@ const NAV: Record<Role, NavItem[]> = {
     },
     { href: "/admin/reports", labelKey: "nav.reports", icon: FileText },
     {
+      href: "/admin/calendar",
+      labelKey: "nav.calendar",
+      icon: CalendarRange,
+    },
+    { href: "/admin/settings", labelKey: "nav.settings", icon: Settings },
+    {
       href: "/admin/announcements",
       labelKey: "nav.announcements",
       icon: Megaphone,
@@ -97,6 +107,17 @@ const NAV: Record<Role, NavItem[]> = {
       href: "/teacher/analytics",
       labelKey: "nav.analytics",
       icon: TrendingUp,
+    },
+    {
+      href: "/teacher/messages",
+      labelKey: "nav.messages",
+      icon: MessageSquare,
+    },
+    { href: "/teacher/library", labelKey: "nav.library", icon: Library },
+    {
+      href: "/teacher/calendar",
+      labelKey: "nav.calendar",
+      icon: CalendarRange,
     },
     { href: "/teacher/notes", labelKey: "nav.notes", icon: StickyNote },
     {

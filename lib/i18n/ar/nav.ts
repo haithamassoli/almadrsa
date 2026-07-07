@@ -22,6 +22,10 @@ export const nav = {
   homework: "الواجبات",
   analytics: "التحليلات",
   reports: "التقارير",
+  messages: "الرسائل",
+  library: "المكتبة",
+  calendar: "التقويم",
+  settings: "الإعدادات",
   // Dashboard landing copy
   greeting: "أهلًا، {name}",
   adminHomeTitle: "لوحة تحكم المدرسة",

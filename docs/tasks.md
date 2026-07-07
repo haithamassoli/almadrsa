@@ -131,7 +131,7 @@ Ships: installable app that pings parents.
 ## Phase 3 — ecosystem & integrity
 
 ### M13 — Messaging
-- [ ] Teacher ↔ parent threads, unread counts, notification trigger
+- [x] Teacher ↔ parent threads, unread counts, notification trigger
 
 ### M14 — Library & calendar
 - [ ] Library resources CRUD (title + link, subject/class) + portal view

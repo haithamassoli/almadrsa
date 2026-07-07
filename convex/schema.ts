@@ -13,6 +13,7 @@ import {
   notificationType,
   questionType,
   reportStatus,
+  senderType,
   studentStatus,
 } from "./lib/validators";
 
@@ -396,6 +397,30 @@ export default defineSchema({
   })
     .index("by_studentId", ["studentId"])
     .index("by_endpoint", ["endpoint"]),
+
+  // ——— M13: teacher↔parent messaging ———
+  // One thread per (student, teacher) pair — get-or-create keyed on
+  // by_studentId_and_teacherId. lastMessageAt/lastPreview and the per-side
+  // unread counters are denormalized here so thread lists and badges never
+  // scan the messages table.
+  threads: defineTable({
+    studentId: v.id("students"),
+    teacherId: v.string(), // Better Auth user id
+    lastMessageAt: v.number(), // ms; creation time until the first message
+    lastPreview: v.string(), // first 80 chars of the latest message ("" if none)
+    teacherUnread: v.number(), // messages the staff side hasn't read yet
+    studentUnread: v.number(), // messages the student side hasn't read yet
+  })
+    .index("by_studentId", ["studentId"])
+    .index("by_teacherId", ["teacherId"])
+    .index("by_studentId_and_teacherId", ["studentId", "teacherId"]),
+
+  messages: defineTable({
+    threadId: v.id("threads"),
+    senderType: senderType,
+    text: v.string(), // 1–2000 chars, enforced in mutations
+    sentAt: v.number(),
+  }).index("by_threadId", ["threadId"]),
 
   // ——— Cross-cutting ———
   auditLog: defineTable({

@@ -35,6 +35,7 @@ function notificationHref(notification: NotificationRow): string | null {
     return `/portal/exams/${notification.refId}`;
   }
   if (notification.refType === "announcement") return "/portal/announcements";
+  if (notification.refType === "message") return "/portal/messages";
   if (notification.refType === "report") return "/portal/reports";
   if (notification.refType === "attendance") return "/portal/attendance";
   return null;
