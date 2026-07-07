@@ -10,8 +10,10 @@ export const nav = {
   codes: "رموز الدخول",
   staff: "الطاقم",
   weights: "أوزان الدرجات",
+  timetable: "الجدول الدراسي",
   // Teacher navigation
   teacherHome: "الرئيسية",
+  attendance: "الحضور",
   // Dashboard landing copy
   greeting: "أهلًا، {name}",
   adminHomeTitle: "لوحة تحكم المدرسة",

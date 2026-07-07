@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import {
+  CalendarDays,
+  ClipboardCheck,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -43,6 +45,7 @@ const NAV: Record<Role, NavItem[]> = {
   admin: [
     { href: "/admin", labelKey: "nav.dashboard", icon: LayoutDashboard },
     { href: "/admin/structure", labelKey: "nav.structure", icon: Network },
+    { href: "/admin/timetable", labelKey: "nav.timetable", icon: CalendarDays },
     { href: "/admin/students", labelKey: "nav.students", icon: Users },
     { href: "/admin/codes", labelKey: "nav.codes", icon: KeyRound },
     { href: "/admin/staff", labelKey: "nav.staff", icon: UserCog },
@@ -50,6 +53,11 @@ const NAV: Record<Role, NavItem[]> = {
   ],
   teacher: [
     { href: "/teacher", labelKey: "nav.teacherHome", icon: LayoutDashboard },
+    {
+      href: "/teacher/attendance",
+      labelKey: "nav.attendance",
+      icon: ClipboardCheck,
+    },
   ],
 };
 

@@ -7,6 +7,9 @@ import { students } from "./students";
 import { codes } from "./codes";
 import { staff } from "./staff";
 import { weights } from "./weights";
+import { timetable } from "./timetable";
+import { lessons } from "./lessons";
+import { attendance } from "./attendance";
 
 // One namespace file per feature area so parallel work never edits the same
 // file. All namespaces are pre-registered here — add keys in YOUR namespace
@@ -21,4 +24,7 @@ export const ar = {
   codes,
   staff,
   weights,
+  timetable,
+  lessons,
+  attendance,
 } as const;

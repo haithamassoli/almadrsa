@@ -39,10 +39,10 @@ Ships: admin sets up the whole school; every student has a code.
 ### M3 — Timetable, lessons, attendance
 Ships: teacher opens today's lesson and marks attendance in under a minute.
 
-- [ ] Weekly timetable slots per class (weekday, period, subject, teacher)
-- [ ] Lesson instances: auto-generated from timetable + ad-hoc; attachable resources
-- [ ] Attendance marking UI (present/absent/late), editable after the fact
-- [ ] Attendance history: teacher per class, per student
+- [x] Weekly timetable slots per class (weekday, period, subject, teacher)
+- [x] Lesson instances: auto-generated from timetable + ad-hoc; attachable resources
+- [x] Attendance marking UI (present/absent/late), editable after the fact
+- [x] Attendance history: teacher per class, per student
 
 ### M4 — Exam engine v1 (MCQ + True/False)
 Ships: full exam cycle — build, schedule, take on a phone, instant results.

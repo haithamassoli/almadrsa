@@ -1,6 +1,12 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { actorType, codeStatus, studentStatus } from "./lib/validators";
+import {
+  actorType,
+  attendanceStatus,
+  codeStatus,
+  lessonSource,
+  studentStatus,
+} from "./lib/validators";
 
 // Staff (admin/teacher) live in the Better Auth component's user table and are
 // referenced from app tables by their Better Auth user id (string).
@@ -62,6 +68,45 @@ export default defineSchema({
     homeworkPct: v.number(),
     participationPct: v.number(),
   }).index("by_subjectId", ["subjectId"]),
+
+  // ——— Timetable, lessons & attendance ———
+  timetableSlots: defineTable({
+    classId: v.id("classes"),
+    weekday: v.number(), // 0=Sunday … 6; school week uses 0–4 (Sun–Thu)
+    period: v.number(), // 1..8
+    subjectId: v.id("subjects"),
+    teacherId: v.string(), // Better Auth user id
+  })
+    .index("by_classId_and_weekday", ["classId", "weekday"])
+    .index("by_teacherId_and_weekday", ["teacherId", "weekday"]),
+
+  lessons: defineTable({
+    classId: v.id("classes"),
+    subjectId: v.id("subjects"),
+    teacherId: v.string(), // Better Auth user id
+    date: v.string(), // "YYYY-MM-DD" date key
+    period: v.number(),
+    source: lessonSource, // materialized from a slot vs. created ad hoc
+    timetableSlotId: v.optional(v.id("timetableSlots")),
+    title: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    resources: v.array(v.object({ title: v.string(), url: v.string() })), // ≤10, enforced in mutations
+  })
+    .index("by_teacherId_and_date", ["teacherId", "date"])
+    .index("by_classId_and_date", ["classId", "date"])
+    .index("by_timetableSlotId_and_date", ["timetableSlotId", "date"]),
+
+  attendance: defineTable({
+    lessonId: v.id("lessons"),
+    studentId: v.id("students"),
+    classId: v.id("classes"), // denormalized from the lesson
+    date: v.string(), // denormalized from the lesson
+    status: attendanceStatus,
+    markedBy: v.string(), // Better Auth user id
+    updatedAt: v.number(),
+  })
+    .index("by_lessonId_and_studentId", ["lessonId", "studentId"])
+    .index("by_studentId_and_date", ["studentId", "date"]),
 
   // ——— Student/parent code auth (custom, hash-only) ———
   accessCodes: defineTable({

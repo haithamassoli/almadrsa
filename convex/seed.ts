@@ -148,6 +148,76 @@ export const seedDemo = internalMutation({
 });
 
 /**
+ * M3 demo timetable for the seeded demo class: Sunday–Thursday (weekday
+ * 0–4), periods 1–3, rotating through the demo subjects, all taught by the
+ * demo teacher. Idempotent — existing (class, weekday, period) slots are
+ * kept. Returns the number of slots created.
+ *   npx convex run seed:seedTimetable '{}'
+ */
+export const seedTimetable = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    // Resolve the demo grade → class exactly as seedDemo created them.
+    const gradesAtOrder = await ctx.db
+      .query("grades")
+      .withIndex("by_order", (q) => q.eq("order", DEMO_GRADE_ORDER))
+      .take(10);
+    const grade = gradesAtOrder.find((g) => g.name === DEMO_GRADE_NAME);
+    if (!grade) return 0;
+    const classes = await ctx.db
+      .query("classes")
+      .withIndex("by_gradeId", (q) => q.eq("gradeId", grade._id))
+      .take(20);
+    const cls = classes.find((c) => c.name === DEMO_CLASS_NAME);
+    if (!cls) return 0;
+
+    // Demo subjects, in DEMO_SUBJECTS order for a deterministic rotation.
+    const gradeSubjects = await ctx.db
+      .query("subjects")
+      .withIndex("by_gradeId", (q) => q.eq("gradeId", grade._id))
+      .take(50);
+    const subjects = DEMO_SUBJECTS.flatMap((name) => {
+      const subject = gradeSubjects.find((s) => s.name === name);
+      return subject ? [subject] : [];
+    });
+    if (subjects.length === 0) return 0;
+
+    // The demo teacher's Better Auth user id, by email (as in seedDemo).
+    const teacher: { _id: string; userId?: string | null } | null =
+      await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [{ field: "email", value: DEMO_TEACHER_EMAIL }],
+      });
+    if (!teacher) return 0;
+    const teacherId = teacher.userId ?? teacher._id;
+
+    let created = 0;
+    for (let weekday = 0; weekday <= 4; weekday++) {
+      const daySlots = await ctx.db
+        .query("timetableSlots")
+        .withIndex("by_classId_and_weekday", (q) =>
+          q.eq("classId", cls._id).eq("weekday", weekday),
+        )
+        .take(20);
+      for (let period = 1; period <= 3; period++) {
+        if (daySlots.some((slot) => slot.period === period)) continue;
+        const subject = subjects[(weekday + period) % subjects.length];
+        await ctx.db.insert("timetableSlots", {
+          classId: cls._id,
+          weekday,
+          period,
+          subjectId: subject._id,
+          teacherId,
+        });
+        created++;
+      }
+    }
+    return created;
+  },
+});
+
+/**
  * Dev/CLI-only helper (internal — unreachable from clients): issue a code for
  * a student through the SAME core path as api.codes.issueCode, without a
  * staff session. Lets local smoke tests exercise the student login flow.

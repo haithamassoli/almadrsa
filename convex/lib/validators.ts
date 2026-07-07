@@ -14,4 +14,16 @@ export const actorType = v.union(
   v.literal("system"),
 );
 
+export const attendanceStatus = v.union(
+  v.literal("present"),
+  v.literal("absent"),
+  v.literal("late"),
+);
+export const lessonSource = v.union(
+  v.literal("timetable"),
+  v.literal("adhoc"),
+);
+
 export type StaffRole = "admin" | "teacher";
+export type AttendanceStatus = "present" | "absent" | "late";
+export type LessonSource = "timetable" | "adhoc";

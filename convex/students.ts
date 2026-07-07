@@ -43,8 +43,9 @@ type StudentListRow = {
  * Admin passes. Teacher must own a `teacherAssignments` row for `classId`.
  * Cheaper of the two scans: fetch the class's assignments (bounded) and test
  * membership, rather than the teacher's whole assignment list.
+ * Shared with the M3 modules (lessons/attendance).
  */
-async function assertStaffCanAccessClass(
+export async function assertStaffCanAccessClass(
   ctx: QueryCtx,
   staff: StaffUser,
   classId: Id<"classes">,
@@ -63,9 +64,9 @@ async function assertStaffCanAccessClass(
  * Admin passes. Teacher must be assigned to a class the student is ACTIVELY
  * enrolled in. Throws if the student has no active enrollment (a teacher has
  * no scope over an unenrolled student). Mirrors `requireCodeManager` in
- * convex/codes.ts.
+ * convex/codes.ts. Shared with the M3 modules (lessons/attendance).
  */
-async function assertStaffCanAccessStudent(
+export async function assertStaffCanAccessStudent(
   ctx: QueryCtx,
   staff: StaffUser,
   studentId: Id<"students">,
