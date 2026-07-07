@@ -114,15 +114,33 @@ export default defineSchema({
     .index("by_lessonId_and_studentId", ["lessonId", "studentId"])
     .index("by_studentId_and_date", ["studentId", "date"]),
 
-  // ——— Exam engine v1 (MCQ + true/false) ———
+  // ——— Exam engine (M4: mcq/truefalse · M8: fillblank/matching/ordering/essay) ———
   questions: defineTable({
     teacherId: v.string(), // creator, Better Auth user id
     subjectId: v.id("subjects"),
     type: questionType,
     text: v.string(),
-    options: v.array(v.object({ id: v.string(), text: v.string() })), // mcq 2–6; truefalse []
+    options: v.array(v.object({ id: v.string(), text: v.string() })), // mcq 2–6; every other type []
     correctOptionId: v.optional(v.string()), // mcq only
     correctBool: v.optional(v.boolean()), // truefalse only
+    // fillblank only: text carries one "____" placeholder (run of ≥4
+    // underscores) per blank, in blank order.
+    blanks: v.optional(
+      v.array(
+        v.object({ id: v.string(), acceptedAnswers: v.array(v.string()) }),
+      ),
+    ),
+    // matching only (2–8). left[i] ↔ right[i] of the SAME pair is correct.
+    pairs: v.optional(
+      v.array(
+        v.object({ id: v.string(), left: v.string(), right: v.string() }),
+      ),
+    ),
+    // ordering only (2–8). DOC ORDER IS THE CORRECT ORDER — never send it
+    // to students unshuffled.
+    items: v.optional(v.array(v.object({ id: v.string(), text: v.string() }))),
+    rubricText: v.optional(v.string()), // essay only, teacher-side guide ≤2000
+    imageId: v.optional(v.id("_storage")), // any type
     topic: v.optional(v.string()),
     difficulty: difficulty,
     archived: v.boolean(),
@@ -145,6 +163,7 @@ export default defineSchema({
     timeLimitMinutes: v.number(),
     status: examStatus,
     totalMarks: v.number(), // denormalized sum of question marks
+    shuffle: v.optional(v.boolean()), // undefined ⇒ true (question/option order)
     closeFnId: v.optional(v.id("_scheduled_functions")), // auto-close at windowEnd
   })
     .index("by_teacherId", ["teacherId"])
@@ -157,12 +176,40 @@ export default defineSchema({
     deadlineAt: v.number(), // min(startedAt + timeLimit, windowEnd)
     submittedAt: v.optional(v.number()),
     status: attemptStatus,
-    answers: v.record(v.id("questions"), v.union(v.string(), v.boolean())),
-    autoScore: v.optional(v.number()), // set on submit/expire/close
+    // Per-type answer values: mcq → option id (string) · truefalse → boolean
+    // · essay → free text (string) · fillblank → string[] in blank order ·
+    // ordering → item ids in chosen order (string[]) · matching → record
+    // leftPairId → chosen rightPairId.
+    answers: v.record(
+      v.id("questions"),
+      v.union(
+        v.string(),
+        v.boolean(),
+        v.array(v.string()),
+        v.record(v.string(), v.string()),
+      ),
+    ),
+    autoScore: v.optional(v.number()), // set on submit/expire/close (essays = 0)
     maxScore: v.number(), // exam.totalMarks at start time
     overrideScore: v.optional(v.number()),
     overrideBy: v.optional(v.string()), // Better Auth user id
     overrideAt: v.optional(v.number()),
+    // M8 — deterministic shuffle seed (djb2 of the attempt id), set at start.
+    seed: v.optional(v.number()),
+    // M8 — manual essay grading. gradedAt/gradedBy stamp when EVERY essay
+    // question has a manual score; results stay hidden until then.
+    manualScores: v.optional(v.record(v.id("questions"), v.number())),
+    feedback: v.optional(
+      v.record(
+        v.id("questions"),
+        v.object({
+          text: v.optional(v.string()),
+          audioId: v.optional(v.id("_storage")),
+        }),
+      ),
+    ),
+    gradedAt: v.optional(v.number()),
+    gradedBy: v.optional(v.string()), // Better Auth user id
     expireFnId: v.optional(v.id("_scheduled_functions")), // auto-submit at deadline
   })
     .index("by_examId_and_studentId", ["examId", "studentId"])

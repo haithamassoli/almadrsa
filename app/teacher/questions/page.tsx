@@ -7,6 +7,7 @@ import {
   Check,
   EllipsisVertical,
   ListChecks,
+  NotebookPen,
   Pencil,
   Plus,
 } from "lucide-react";
@@ -50,7 +51,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { t } from "@/lib/i18n";
+import { formatNumber, t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { mutationErrorText } from "./errors";
 import { QuestionDialog, type QuestionRow } from "./question-dialog";
@@ -60,6 +61,10 @@ const ALL = "all";
 const TYPE_LABEL = {
   mcq: "questions.typeMcq",
   truefalse: "questions.typeTruefalse",
+  fillblank: "questions.typeFillblank",
+  matching: "questions.typeMatching",
+  ordering: "questions.typeOrdering",
+  essay: "questions.typeEssay",
 } as const;
 
 const DIFFICULTY_LABEL = {
@@ -125,6 +130,10 @@ export default function QuestionsPage() {
       { value: ALL, label: t("questions.allTypes") },
       { value: "mcq", label: t("questions.typeMcq") },
       { value: "truefalse", label: t("questions.typeTruefalse") },
+      { value: "fillblank", label: t("questions.typeFillblank") },
+      { value: "matching", label: t("questions.typeMatching") },
+      { value: "ordering", label: t("questions.typeOrdering") },
+      { value: "essay", label: t("questions.typeEssay") },
     ],
     [],
   );
@@ -374,6 +383,14 @@ function QuestionCard({
     <Card className="rounded-2xl">
       <CardContent className="flex flex-col gap-3">
         <div className="flex items-start gap-3">
+          {question.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- Convex storage URL; next/image remotePatterns not configured
+            <img
+              src={question.imageUrl}
+              alt={t("questions.imageAlt")}
+              className="size-14 shrink-0 rounded-lg border object-cover"
+            />
+          ) : null}
           <p className="line-clamp-2 flex-1 font-medium">{question.text}</p>
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -406,6 +423,12 @@ function QuestionCard({
           <Badge className={DIFFICULTY_BADGE_CLASS[question.difficulty]}>
             {t(DIFFICULTY_LABEL[question.difficulty])}
           </Badge>
+          {question.type === "essay" && question.rubricText ? (
+            <Badge variant="outline">
+              <NotebookPen aria-hidden />
+              {t("questions.hasRubricBadge")}
+            </Badge>
+          ) : null}
           {question.topic ? (
             <Badge variant="outline">{question.topic}</Badge>
           ) : null}
@@ -435,7 +458,7 @@ function QuestionCard({
               );
             })}
           </ul>
-        ) : (
+        ) : question.type === "truefalse" ? (
           <div className="flex flex-wrap items-center gap-2">
             {[
               { value: true, label: t("questions.answerTrue") },
@@ -460,7 +483,25 @@ function QuestionCard({
               );
             })}
           </div>
-        )}
+        ) : question.type === "fillblank" ? (
+          <p className="text-sm text-muted-foreground">
+            {t("questions.blanksCount", {
+              n: formatNumber(question.blanks?.length ?? 0),
+            })}
+          </p>
+        ) : question.type === "matching" ? (
+          <p className="text-sm text-muted-foreground">
+            {t("questions.pairsCount", {
+              n: formatNumber(question.pairs?.length ?? 0),
+            })}
+          </p>
+        ) : question.type === "ordering" ? (
+          <p className="text-sm text-muted-foreground">
+            {t("questions.itemsCount", {
+              n: formatNumber(question.items?.length ?? 0),
+            })}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );

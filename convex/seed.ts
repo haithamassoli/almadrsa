@@ -364,6 +364,133 @@ export const seedQuestions = internalMutation({
   },
 });
 
+// ——— M8 demo question bank v2 (new types) ———
+
+type DemoQuestionV2 = {
+  type: "fillblank" | "matching" | "ordering" | "essay";
+  text: string;
+  blanks?: Array<{ id: string; acceptedAnswers: Array<string> }>;
+  pairs?: Array<{ id: string; left: string; right: string }>;
+  items?: Array<{ id: string; text: string }>;
+  rubricText?: string;
+  topic: string;
+  difficulty: "easy" | "medium" | "hard";
+};
+
+const DEMO_QUESTIONS_V2: Array<DemoQuestionV2> = [
+  {
+    type: "fillblank",
+    // Two "____" placeholders ↔ two blanks, in order.
+    text: "الصلوات المفروضة في اليوم والليلة عددها ____ صلوات، وأولها صلاة ____.",
+    blanks: [
+      { id: "b1", acceptedAnswers: ["خمس", "خمسة", "5", "٥"] },
+      { id: "b2", acceptedAnswers: ["الفجر", "الصبح"] },
+    ],
+    topic: "الصلاة",
+    difficulty: "easy",
+  },
+  {
+    type: "matching",
+    text: "صِل كل صلاة بعدد ركعاتها الصحيح.",
+    pairs: [
+      { id: "p1", left: "صلاة الفجر", right: "ركعتان" },
+      { id: "p2", left: "صلاة المغرب", right: "ثلاث ركعات" },
+      { id: "p3", left: "صلاة العشاء", right: "أربع ركعات" },
+    ],
+    topic: "الصلاة",
+    difficulty: "medium",
+  },
+  {
+    type: "ordering",
+    text: "رتّب أركان الوضوء بالترتيب الصحيح.",
+    // Doc order IS the correct order.
+    items: [
+      { id: "i1", text: "غسل الوجه" },
+      { id: "i2", text: "غسل اليدين إلى المرفقين" },
+      { id: "i3", text: "مسح الرأس" },
+      { id: "i4", text: "غسل الرجلين إلى الكعبين" },
+    ],
+    topic: "الوضوء",
+    difficulty: "medium",
+  },
+  {
+    type: "essay",
+    text: "اكتب ثلاثة أسطر عن أهمية الصلاة في حياة المسلم.",
+    rubricText:
+      "معايير التقييم: ذكر مكانة الصلاة في الإسلام (درجتان)، أثرها في سلوك " +
+      "المسلم وحياته اليومية (درجتان)، سلامة اللغة ووضوح التعبير (درجة).",
+    topic: "الصلاة",
+    difficulty: "hard",
+  },
+];
+
+/**
+ * M8 demo bank v2 for the first demo subject (التربية الإسلامية), owned by
+ * the demo teacher: one question of each new type in Arabic — fillblank
+ * (2 blanks), matching (3 pairs), ordering (4 items, أركان الوضوء
+ * بالترتيب) and essay (with a rubric). Idempotent — skipped when the
+ * subject already has ANY question of a v2 type. Returns the number of
+ * questions created.
+ *   npx convex run seed:seedQuestionsV2 '{}'
+ */
+export const seedQuestionsV2 = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    // Resolve the demo grade → first demo subject exactly as seedDemo
+    // created them.
+    const gradesAtOrder = await ctx.db
+      .query("grades")
+      .withIndex("by_order", (q) => q.eq("order", DEMO_GRADE_ORDER))
+      .take(10);
+    const grade = gradesAtOrder.find((g) => g.name === DEMO_GRADE_NAME);
+    if (!grade) return 0;
+    const gradeSubjects = await ctx.db
+      .query("subjects")
+      .withIndex("by_gradeId", (q) => q.eq("gradeId", grade._id))
+      .take(50);
+    const subject = gradeSubjects.find((s) => s.name === DEMO_SUBJECTS[0]);
+    if (!subject) return 0;
+
+    // Idempotent: any v2-type question in the subject means we already ran.
+    const v2Types = new Set(["fillblank", "matching", "ordering", "essay"]);
+    const existing = await ctx.db
+      .query("questions")
+      .withIndex("by_subjectId", (q) => q.eq("subjectId", subject._id))
+      .take(500);
+    if (existing.some((question) => v2Types.has(question.type))) return 0;
+
+    // The demo teacher's Better Auth user id, by email (as in seedDemo).
+    const teacher: { _id: string; userId?: string | null } | null =
+      await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [{ field: "email", value: DEMO_TEACHER_EMAIL }],
+      });
+    if (!teacher) return 0;
+    const teacherId = teacher.userId ?? teacher._id;
+
+    let created = 0;
+    for (const question of DEMO_QUESTIONS_V2) {
+      await ctx.db.insert("questions", {
+        teacherId,
+        subjectId: subject._id,
+        type: question.type,
+        text: question.text,
+        options: [],
+        blanks: question.blanks,
+        pairs: question.pairs,
+        items: question.items,
+        rubricText: question.rubricText,
+        topic: question.topic,
+        difficulty: question.difficulty,
+        archived: false,
+      });
+      created++;
+    }
+    return created;
+  },
+});
+
 // ——— M5 welcome announcement ———
 
 const WELCOME_TITLE = "أهلًا بكم في المنصة";

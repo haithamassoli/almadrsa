@@ -40,4 +40,15 @@ export const examsPortal = {
   timeUpBody: "يجري تسليم إجاباتك تلقائيًا…",
   resultLabel: "تم تسليم الاختبار",
   submittedAtLabel: "سُلِّم في {time}",
+  // M8 — new question types, question images, manual grading states.
+  essayPlaceholder: "اكتب إجابتك…",
+  blankLabel: "الفراغ {n}",
+  matchChoose: "اختر…",
+  moveUp: "تحريك لأعلى",
+  moveDown: "تحريك لأسفل",
+  questionImageAlt: "صورة مرفقة بالسؤال",
+  receivedTitle: "استلمنا إجاباتك",
+  receivedBody: "ستظهر النتيجة بعد اكتمال تصحيح الأسئلة المقالية",
+  pendingGradingBadge: "بانتظار التصحيح",
+  teacherFeedbackTitle: "ملاحظات المعلّم",
 } as const;

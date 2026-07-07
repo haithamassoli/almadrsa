@@ -11,6 +11,7 @@ const ERROR_KEYS = {
   exam_not_published: "exams.errNotPublished",
   invalid_score: "exams.errInvalidScore",
   not_submitted: "exams.errNotSubmitted",
+  invalid_grading: "exams.errInvalidGrading",
 } as const;
 
 export function errorText(code: string | undefined): string {

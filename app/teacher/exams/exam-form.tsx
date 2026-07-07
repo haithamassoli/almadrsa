@@ -21,11 +21,18 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { formatNumber, t, type MessageKey } from "@/lib/i18n";
 import { mutationErrorText } from "./errors";
 
 export type ExamStatus = "draft" | "published" | "closed";
-type QuestionType = "mcq" | "truefalse";
+type QuestionType =
+  | "mcq"
+  | "truefalse"
+  | "fillblank"
+  | "matching"
+  | "ordering"
+  | "essay";
 type Difficulty = "easy" | "medium" | "hard";
 
 /** Shape returned by api.exams.get (builder/detail). */
@@ -42,6 +49,7 @@ export type ExamDetail = {
   windowEnd: number;
   timeLimitMinutes: number;
   totalMarks: number;
+  shuffle?: boolean; // undefined ⇒ true
   questions: Array<{
     questionId: Id<"questions">;
     marks: number;
@@ -97,6 +105,10 @@ export function ExamStatusBadge({ status }: { status: ExamStatus }) {
 const TYPE_LABEL: Record<QuestionType, MessageKey> = {
   mcq: "exams.typeMcq",
   truefalse: "exams.typeTruefalse",
+  fillblank: "exams.typeFillblank",
+  matching: "exams.typeMatching",
+  ordering: "exams.typeOrdering",
+  essay: "exams.typeEssay",
 };
 const DIFFICULTY_LABEL: Record<Difficulty, MessageKey> = {
   easy: "exams.difficultyEasy",
@@ -145,6 +157,8 @@ export function ExamForm({ exam }: { exam?: ExamDetail }) {
   const [timeLimit, setTimeLimit] = useState(
     exam ? String(exam.timeLimitMinutes) : "30",
   );
+  // M8 — per-student shuffle; default ON (server treats undefined as true).
+  const [shuffle, setShuffle] = useState(exam ? exam.shuffle !== false : true);
   // questionId → marks (kept as input string); insertion order = exam order.
   const [selected, setSelected] = useState<Record<string, string>>(() =>
     Object.fromEntries(
@@ -203,6 +217,10 @@ export function ExamForm({ exam }: { exam?: ExamDetail }) {
       { value: ALL, label: t("exams.allTypes") },
       { value: "mcq", label: t("exams.typeMcq") },
       { value: "truefalse", label: t("exams.typeTruefalse") },
+      { value: "fillblank", label: t("exams.typeFillblank") },
+      { value: "matching", label: t("exams.typeMatching") },
+      { value: "ordering", label: t("exams.typeOrdering") },
+      { value: "essay", label: t("exams.typeEssay") },
     ],
     [],
   );
@@ -299,6 +317,7 @@ export function ExamForm({ exam }: { exam?: ExamDetail }) {
       windowStart,
       windowEnd,
       timeLimitMinutes: Number(timeLimit),
+      shuffle,
     };
     setPending(true);
     try {
@@ -419,6 +438,21 @@ export function ExamForm({ exam }: { exam?: ExamDetail }) {
             step={1}
             value={timeLimit}
             onChange={(e) => setTimeLimit(e.target.value)}
+          />
+        </div>
+
+        {/* M8 — per-student question/option shuffle */}
+        <div className="flex items-center justify-between gap-3 rounded-xl border p-3 md:col-span-2">
+          <div className="flex flex-col gap-0.5">
+            <Label htmlFor="exam-shuffle">{t("exams.fieldShuffle")}</Label>
+            <p className="text-xs text-muted-foreground">
+              {t("exams.shuffleHint")}
+            </p>
+          </div>
+          <Switch
+            id="exam-shuffle"
+            checked={shuffle}
+            onCheckedChange={(checked) => setShuffle(checked)}
           />
         </div>
       </div>

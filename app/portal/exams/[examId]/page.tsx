@@ -1,15 +1,30 @@
 "use client";
 
-import { Component, useCallback, useEffect, useRef, useState } from "react";
+import {
+  Component,
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { ArrowRight, Check, CircleAlert, Hourglass } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  CircleAlert,
+  Hourglass,
+} from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { AudioPlayer } from "@/components/audio-player";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,8 +45,17 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 import { formatDateTime, formatNumber, t } from "@/lib/i18n";
 import { useStudentSession } from "@/lib/student-session";
 import { cn } from "@/lib/utils";
@@ -39,16 +63,64 @@ import { errorCode, errorText, mutationErrorText } from "../errors";
 
 type AttemptView = FunctionReturnType<typeof api.attempts.getAttempt>;
 type AttemptQuestion = AttemptView["questions"][number];
-type AnswerValue = string | boolean;
+/**
+ * Per-type answer value, mirroring attempts.saveAnswers:
+ *   mcq → option id · truefalse → boolean · essay → text ≤8000 ·
+ *   fillblank → string[] in blank order · ordering → item id order ·
+ *   matching → record leftId→rightId
+ */
+type AnswerValue = string | boolean | Array<string> | Record<string, string>;
 type AnswersMap = Record<Id<"questions">, AnswerValue>;
 
 const SAVE_DEBOUNCE_MS = 800;
 const WARN_MS = 5 * 60_000;
+const MAX_ESSAY_LENGTH = 8000; // attempts.MAX_ESSAY_ANSWER_LENGTH
+const MAX_BLANK_LENGTH = 500; // attempts.MAX_BLANK_ANSWER_LENGTH
+
+/** fillblank placeholder: one run of ≥4 underscores per blank, in order. */
+const BLANK_PLACEHOLDER = /_{4,}/;
+
+/** Narrow a mixed answer value to the array shape (fillblank/ordering). */
+function asArray(value: AnswerValue | undefined): Array<string> {
+  return Array.isArray(value) ? value : [];
+}
+
+/** Narrow a mixed answer value to the record shape (matching). */
+function asRecord(value: AnswerValue | undefined): Record<string, string> {
+  return value !== undefined &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+    ? value
+    : {};
+}
+
+/** Content-aware "did the student answer this?" for the counter/confirm. */
+function isAnswered(value: AnswerValue | undefined): boolean {
+  if (value === undefined) return false;
+  if (typeof value === "boolean") return true;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) {
+    return value.some((entry) => entry.trim().length > 0);
+  }
+  return Object.keys(value).length > 0;
+}
 
 // ——— localStorage crash/offline buffer (full answers object per attempt) ———
 
 function bufferKey(attemptId: string): string {
   return `attempt.${attemptId}.answers`;
+}
+
+/** JSON round-tripped value → is it one of the AnswerValue shapes? */
+function isBufferedValue(value: unknown): value is AnswerValue {
+  if (typeof value === "string" || typeof value === "boolean") return true;
+  if (Array.isArray(value)) {
+    return value.every((entry) => typeof entry === "string");
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.values(value).every((entry) => typeof entry === "string");
+  }
+  return false;
 }
 
 function readBuffer(attemptId: string): Record<string, AnswerValue> {
@@ -62,9 +134,7 @@ function readBuffer(attemptId: string): Record<string, AnswerValue> {
     }
     const out: Record<string, AnswerValue> = {};
     for (const [key, value] of Object.entries(parsed)) {
-      if (typeof value === "string" || typeof value === "boolean") {
-        out[key] = value;
-      }
+      if (isBufferedValue(value)) out[key] = value;
     }
     return out;
   } catch {
@@ -256,6 +326,87 @@ function ClassComparison({
   );
 }
 
+/**
+ * Essay exam submitted, teacher still grading: receipt state. Deliberately
+ * scoreless — nothing here may hint at the eventual result.
+ */
+function GradingPendingScreen({ attempt }: { attempt: AttemptView }) {
+  return (
+    <div className="flex flex-1 items-center justify-center py-8">
+      <div className="flex w-full max-w-sm flex-col items-center gap-3 rounded-2xl border bg-card p-6 text-center">
+        <span className="flex size-12 items-center justify-center rounded-full bg-success/10 text-success">
+          <Check className="size-6" aria-hidden />
+        </span>
+        <span className="text-lg font-black">
+          {t("examsPortal.receivedTitle")}
+        </span>
+        <span className="text-sm text-muted-foreground">
+          {t("examsPortal.receivedBody")}
+        </span>
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="text-sm font-bold">{attempt.examTitle}</span>
+          {attempt.submittedAt !== undefined ? (
+            <span className="text-xs text-muted-foreground">
+              {t("examsPortal.submittedAtLabel", {
+                time: formatDateTime(attempt.submittedAt),
+              })}
+            </span>
+          ) : null}
+        </div>
+        <Button
+          variant="outline"
+          className="w-full"
+          nativeButton={false}
+          render={<Link href="/portal/exams" />}
+        >
+          <ArrowRight />
+          {t("examsPortal.backToExams")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "ملاحظات المعلّم": per-essay feedback (text and/or voice note) in attempt
+ * question order. Renders nothing when no entry carries content.
+ */
+function TeacherFeedback({ attempt }: { attempt: AttemptView }) {
+  const entries = attempt.questions.flatMap((question) => {
+    const entry = attempt.feedback?.[question.questionId];
+    return entry !== undefined &&
+      (entry.text !== undefined || entry.audioUrl !== undefined)
+      ? [{ question, entry }]
+      : [];
+  });
+  if (entries.length === 0) return null;
+  return (
+    <div className="flex w-full max-w-sm flex-col gap-3 rounded-2xl border bg-card p-4 text-start">
+      <span className="text-sm font-bold">
+        {t("examsPortal.teacherFeedbackTitle")}
+      </span>
+      {entries.map(({ question, entry }) => (
+        <div
+          key={question.questionId}
+          className="flex flex-col gap-2 rounded-xl border p-3"
+        >
+          <p className="line-clamp-2 text-xs font-medium text-muted-foreground">
+            {question.text}
+          </p>
+          {entry.text !== undefined ? (
+            <p className="text-sm leading-relaxed whitespace-pre-wrap">
+              {entry.text}
+            </p>
+          ) : null}
+          {entry.audioUrl !== undefined ? (
+            <AudioPlayer src={entry.audioUrl} />
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Submitted attempt: the score card (no correct answers are ever shown). */
 function ResultScreen({
   attempt,
@@ -266,9 +417,12 @@ function ResultScreen({
   sessionToken: string;
   examId: Id<"exams">;
 }) {
-  const effective = attempt.overrideScore ?? attempt.autoScore ?? 0;
+  // Essay exam not fully graded yet — receipt only, never a score.
+  if (attempt.gradingPending) return <GradingPendingScreen attempt={attempt} />;
+  const effective =
+    attempt.totalScore ?? attempt.overrideScore ?? attempt.autoScore ?? 0;
   return (
-    <div className="flex flex-1 items-center justify-center py-8">
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 py-8">
       <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-2xl border bg-card p-6 text-center">
         <span className="flex size-10 items-center justify-center rounded-full bg-success/10 text-success">
           <Check className="size-5" aria-hidden />
@@ -307,6 +461,7 @@ function ResultScreen({
           {t("examsPortal.backToExams")}
         </Button>
       </div>
+      <TeacherFeedback attempt={attempt} />
     </div>
   );
 }
@@ -455,6 +610,302 @@ function TrueFalseOptions({
   );
 }
 
+/**
+ * fillblank: the question text with an inline Input per "____" placeholder
+ * (runs of ≥4 underscores — the exact convention the backend validates).
+ * The answer is a string[] in blank order; untouched blanks stay "".
+ */
+function FillBlankText({
+  question,
+  value,
+  onAnswer,
+}: {
+  question: AttemptQuestion;
+  value: AnswerValue | undefined;
+  onAnswer: (questionId: Id<"questions">, value: AnswerValue) => void;
+}) {
+  const segments = question.text.split(BLANK_PLACEHOLDER);
+  const blankCount = segments.length - 1;
+  const values = asArray(value);
+  const setBlank = (index: number, entry: string) => {
+    const next = Array.from({ length: blankCount }, (_, i) =>
+      i === index ? entry : (values[i] ?? ""),
+    );
+    onAnswer(question.questionId, next);
+  };
+  return (
+    <p className="font-medium leading-loose">
+      {segments.map((segment, index) => (
+        <Fragment key={index}>
+          {segment}
+          {index < blankCount ? (
+            <Input
+              dir="auto"
+              value={values[index] ?? ""}
+              onChange={(event) => setBlank(index, event.target.value)}
+              maxLength={MAX_BLANK_LENGTH}
+              autoComplete="off"
+              aria-label={t("examsPortal.blankLabel", {
+                n: formatNumber(index + 1),
+              })}
+              className="mx-1 inline-block h-9 w-36 max-w-full align-middle"
+            />
+          ) : null}
+        </Fragment>
+      ))}
+    </p>
+  );
+}
+
+/** matching: the "not chosen yet" Select value (never sent to the server). */
+const UNMATCHED = "";
+
+/**
+ * matching: one row per left item with a Select over the (always-shuffled)
+ * right options. A right option is choosable once — options picked in other
+ * rows disappear from this row's list. Answer: record leftId→rightId;
+ * re-choosing "اختر…" clears the row (its key is dropped).
+ */
+function MatchingRows({
+  question,
+  value,
+  onAnswer,
+}: {
+  question: AttemptQuestion;
+  value: AnswerValue | undefined;
+  onAnswer: (questionId: Id<"questions">, value: AnswerValue) => void;
+}) {
+  const record = asRecord(value);
+  const pairsLeft = question.pairsLeft ?? [];
+  const rightOptions = question.rightOptions ?? [];
+  const chosen = new Set(Object.values(record));
+  const setMatch = (leftId: string, rightId: string) => {
+    // Rebuild from pairsLeft: applies the change, drops cleared/stale keys.
+    const next: Record<string, string> = {};
+    for (const pair of pairsLeft) {
+      const current = pair.id === leftId ? rightId : record[pair.id];
+      if (current !== undefined && current !== UNMATCHED) {
+        next[pair.id] = current;
+      }
+    }
+    onAnswer(question.questionId, next);
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      {pairsLeft.map((pair) => {
+        const current = record[pair.id] ?? UNMATCHED;
+        const items = [
+          { value: UNMATCHED, label: t("examsPortal.matchChoose") },
+          ...rightOptions
+            .filter((right) => right.id === current || !chosen.has(right.id))
+            .map((right) => ({ value: right.id, label: right.text })),
+        ];
+        return (
+          <div
+            key={pair.id}
+            className="flex min-h-12 flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border p-3"
+          >
+            <span className="min-w-0 flex-1 basis-32 text-sm leading-relaxed">
+              {pair.left}
+            </span>
+            <Select
+              items={items}
+              value={current}
+              onValueChange={(next) => setMatch(pair.id, next as string)}
+            >
+              <SelectTrigger aria-label={pair.left} className="w-40 max-w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {items.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Display order for an ordering question: the saved answer's id order when
+ * present (missing/unknown ids reconciled defensively), otherwise the
+ * server-shuffled items untouched.
+ */
+function deriveOrder(
+  items: Array<{ id: string; text: string }>,
+  value: AnswerValue | undefined,
+): Array<{ id: string; text: string }> {
+  const answer = asArray(value);
+  if (answer.length === 0) return items;
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const ordered: Array<{ id: string; text: string }> = [];
+  const used = new Set<string>();
+  for (const id of answer) {
+    const item = byId.get(id);
+    if (item !== undefined && !used.has(id)) {
+      ordered.push(item);
+      used.add(id);
+    }
+  }
+  for (const item of items) {
+    if (!used.has(item.id)) ordered.push(item);
+  }
+  return ordered;
+}
+
+/**
+ * ordering: the server-shuffled items, reorderable with up/down buttons.
+ * Until the first move the answer stays unset — the untouched shuffle is
+ * never submitted as an answer; every move writes the full id order.
+ */
+function OrderingList({
+  question,
+  value,
+  onAnswer,
+}: {
+  question: AttemptQuestion;
+  value: AnswerValue | undefined;
+  onAnswer: (questionId: Id<"questions">, value: AnswerValue) => void;
+}) {
+  const order = deriveOrder(question.orderItems ?? [], value);
+  const move = (index: number, delta: -1 | 1) => {
+    const target = index + delta;
+    if (target < 0 || target >= order.length) return;
+    const next = [...order];
+    [next[index], next[target]] = [next[target], next[index]];
+    onAnswer(
+      question.questionId,
+      next.map((item) => item.id),
+    );
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      {order.map((item, index) => (
+        <div
+          key={item.id}
+          className="flex min-h-12 items-center gap-2 rounded-xl border p-2 ps-3"
+        >
+          <span
+            aria-hidden
+            className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold tabular-nums"
+          >
+            {formatNumber(index + 1)}
+          </span>
+          <span className="min-w-0 flex-1 text-sm leading-relaxed">
+            {item.text}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label={t("examsPortal.moveUp")}
+            disabled={index === 0}
+            onClick={() => move(index, -1)}
+          >
+            <ChevronUp aria-hidden />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label={t("examsPortal.moveDown")}
+            disabled={index === order.length - 1}
+            onClick={() => move(index, 1)}
+          >
+            <ChevronDown aria-hidden />
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** essay: free text, auto-growing (field-sizing-content), ≤8000 chars. */
+function EssayInput({
+  question,
+  value,
+  onAnswer,
+}: {
+  question: AttemptQuestion;
+  value: AnswerValue | undefined;
+  onAnswer: (questionId: Id<"questions">, value: AnswerValue) => void;
+}) {
+  return (
+    <Textarea
+      value={typeof value === "string" ? value : ""}
+      onChange={(event) => onAnswer(question.questionId, event.target.value)}
+      maxLength={MAX_ESSAY_LENGTH}
+      placeholder={t("examsPortal.essayPlaceholder")}
+      className="min-h-28"
+    />
+  );
+}
+
+/** Illustration attached to any question type (Convex storage URL). */
+function QuestionImage({ url }: { url: string }) {
+  // Convex storage URLs are deployment-dynamic and next/image would need a
+  // remotePatterns config — the plain element with native lazy loading is
+  // the right tool here.
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={url}
+      alt={t("examsPortal.questionImageAlt")}
+      loading="lazy"
+      className="max-h-64 w-auto max-w-full rounded-xl border object-contain"
+    />
+  );
+}
+
+/** The per-type answer control (fillblank fuses into the question text). */
+function AnswerControl({
+  question,
+  value,
+  onAnswer,
+}: {
+  question: AttemptQuestion;
+  value: AnswerValue | undefined;
+  onAnswer: (questionId: Id<"questions">, value: AnswerValue) => void;
+}) {
+  switch (question.type) {
+    case "mcq":
+      return (
+        <McqOptions
+          question={question}
+          value={typeof value === "string" ? value : undefined}
+          onAnswer={onAnswer}
+        />
+      );
+    case "truefalse":
+      return (
+        <TrueFalseOptions
+          question={question}
+          value={typeof value === "boolean" ? value : undefined}
+          onAnswer={onAnswer}
+        />
+      );
+    case "fillblank":
+      return null; // the inputs render inline inside the question text
+    case "matching":
+      return (
+        <MatchingRows question={question} value={value} onAnswer={onAnswer} />
+      );
+    case "ordering":
+      return (
+        <OrderingList question={question} value={value} onAnswer={onAnswer} />
+      );
+    case "essay":
+      return (
+        <EssayInput question={question} value={value} onAnswer={onAnswer} />
+      );
+  }
+}
+
 function QuestionCard({
   question,
   index,
@@ -484,20 +935,15 @@ function QuestionCard({
             : t("examsPortal.markMany", { n: formatNumber(question.marks) })}
         </Badge>
       </div>
-      <p className="font-medium leading-relaxed">{question.text}</p>
-      {question.type === "mcq" ? (
-        <McqOptions
-          question={question}
-          value={typeof value === "string" ? value : undefined}
-          onAnswer={onAnswer}
-        />
+      {question.type === "fillblank" ? (
+        <FillBlankText question={question} value={value} onAnswer={onAnswer} />
       ) : (
-        <TrueFalseOptions
-          question={question}
-          value={typeof value === "boolean" ? value : undefined}
-          onAnswer={onAnswer}
-        />
+        <p className="font-medium leading-relaxed">{question.text}</p>
       )}
+      {question.imageUrl !== undefined ? (
+        <QuestionImage url={question.imageUrl} />
+      ) : null}
+      <AnswerControl question={question} value={value} onAnswer={onAnswer} />
     </div>
   );
 }
@@ -682,7 +1128,8 @@ function TakingScreen({
 
   const total = attempt.questions.length;
   const answered = attempt.questions.reduce(
-    (count, question) => count + (question.questionId in answers ? 1 : 0),
+    (count, question) =>
+      count + (isAnswered(answers[question.questionId]) ? 1 : 0),
     0,
   );
   const unanswered = total - answered;

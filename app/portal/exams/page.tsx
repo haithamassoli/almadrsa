@@ -84,7 +84,11 @@ function UpcomingCard({ row }: { row: ExamRow }) {
   );
 }
 
-/** Submitted or missed exam: compact row; submitted rows open the result. */
+/**
+ * Submitted, pending-grading or missed exam: compact row; submitted and
+ * pending rows open the result/receipt screen. Pending (essay exam not yet
+ * fully graded) shows the accent badge instead of a score — never a score.
+ */
 function PastRow({ row }: { row: ExamRow }) {
   const inner = (
     <>
@@ -101,6 +105,10 @@ function PastRow({ row }: { row: ExamRow }) {
             total: formatNumber(row.totalMarks),
           })}
         </Badge>
+      ) : row.state === "pending_grading" ? (
+        <Badge className="shrink-0 bg-accent text-accent-foreground">
+          {t("examsPortal.pendingGradingBadge")}
+        </Badge>
       ) : (
         <span className="shrink-0 text-xs text-muted-foreground">
           {t("examsPortal.notSubmitted")}
@@ -108,7 +116,7 @@ function PastRow({ row }: { row: ExamRow }) {
       )}
     </>
   );
-  if (row.state === "submitted") {
+  if (row.state === "submitted" || row.state === "pending_grading") {
     return (
       <Link
         href={`/portal/exams/${row.examId}`}
@@ -154,7 +162,10 @@ export default function PortalExamsPage() {
     .filter((row) => row.state === "upcoming")
     .sort((a, b) => a.windowStart - b.windowStart);
   const past = rows.filter(
-    (row) => row.state === "submitted" || row.state === "missed",
+    (row) =>
+      row.state === "submitted" ||
+      row.state === "pending_grading" ||
+      row.state === "missed",
   );
 
   return (

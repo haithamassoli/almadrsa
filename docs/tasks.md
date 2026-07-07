@@ -85,11 +85,11 @@ Ships: one real class using it daily.
 ### M8 — Assessments v2
 Ships: every question type, essay grading with rubrics and voice feedback, shuffling.
 
-- [ ] Fill-in-blank, matching, ordering: model, builder, taking UI, auto-grader
-- [ ] Image attachment on any question (Convex file storage)
-- [ ] Essay questions: manual grading queue, optional rubric, text/voice feedback (record + playback)
-- [ ] Combined auto+manual scoring; results publish when grading completes
-- [ ] Shuffle question and option order per student (seeded at attempt creation)
+- [x] Fill-in-blank, matching, ordering: model, builder, taking UI, auto-grader
+- [x] Image attachment on any question (Convex file storage)
+- [x] Essay questions: manual grading queue, optional rubric, text/voice feedback (record + playback)
+- [x] Combined auto+manual scoring; results publish when grading completes
+- [x] Shuffle question and option order per student (seeded at attempt creation)
 
 ### M9 — Homework
 Ships: assign → student submits text/photo/voice → auto-close → grade.

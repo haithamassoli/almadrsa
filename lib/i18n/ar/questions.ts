@@ -19,6 +19,10 @@ export const questions = {
   // Type labels
   typeMcq: "اختيار من متعدد",
   typeTruefalse: "صح أو خطأ",
+  typeFillblank: "ملء الفراغ",
+  typeMatching: "مطابقة",
+  typeOrdering: "ترتيب",
+  typeEssay: "مقالي",
 
   // Difficulty labels
   difficultyEasy: "سهل",
@@ -74,4 +78,55 @@ export const questions = {
   errNotAssigned: "لست مُسندًا لتدريس هذه المادة",
   errNotOwner: "لا تملك صلاحية تعديل هذا السؤال",
   errNotFound: "السؤال غير موجود",
+
+  // M8 — fill-blank editor
+  fillblankHint: "استخدم ____ لكل فراغ",
+  blanksLabel: "الفراغات وإجاباتها المقبولة",
+  blanksDetected: "عدد الفراغات في النص: {n}",
+  blankPlaceholder: "إجابات الفراغ {n} المقبولة، مفصولة بفواصل",
+  addBlank: "إضافة فراغ",
+  removeBlank: "حذف الفراغ",
+
+  // M8 — matching editor
+  pairsLabel: "أزواج المطابقة",
+  pairLeftPlaceholder: "اليسار {n}",
+  pairRightPlaceholder: "اليمين {n}",
+  addPair: "إضافة زوج",
+  removePair: "حذف الزوج",
+
+  // M8 — ordering editor
+  itemsLabel: "العناصر",
+  orderingHint: "رتّبها هنا بالترتيب الصحيح؛ ستُخلط للطالب",
+  itemPlaceholder: "العنصر {n}",
+  addItem: "إضافة عنصر",
+  removeItem: "حذف العنصر",
+  moveUp: "نقل لأعلى",
+  moveDown: "نقل لأسفل",
+
+  // M8 — essay editor
+  rubricLabel: "معايير التصحيح (اختياري، يظهر لك فقط أثناء التصحيح)",
+  rubricPlaceholder: "ما الذي ستقيّمه في إجابة الطالب؟",
+  hasRubricBadge: "معايير تصحيح",
+
+  // M8 — question image
+  imageLabel: "صورة توضيحية (اختياري)",
+  imageRemove: "إزالة الصورة",
+  imageAlt: "صورة السؤال",
+  imageTooLarge: "حجم الصورة يتجاوز 10 ميغابايت.",
+  imageInvalidType: "اختر ملف صورة.",
+  imageUploadError: "تعذّر رفع الصورة. حاول مرة أخرى.",
+
+  // M8 — card meta
+  blanksCount: "عدد الفراغات: {n}",
+  pairsCount: "عدد الأزواج: {n}",
+  itemsCount: "عدد العناصر: {n}",
+
+  // M8 — client validation
+  valBlankCount:
+    "عدد الفراغات ({rows}) لا يطابق عدد ____ في نص السؤال ({placeholders}).",
+  valBlankAnswers: "أدخل إجابة مقبولة واحدة على الأقل لكل فراغ.",
+  valBlankAnswerLength: "كل إجابة مقبولة بحد أقصى 200 حرف.",
+  valBlankAnswersMax: "بحد أقصى 20 إجابة مقبولة لكل فراغ.",
+  valPairText: "أكمل طرفي كل زوج.",
+  valItemText: "نص كل عنصر مطلوب.",
 } as const;

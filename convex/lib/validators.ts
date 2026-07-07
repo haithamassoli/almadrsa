@@ -24,8 +24,15 @@ export const lessonSource = v.union(
   v.literal("adhoc"),
 );
 
-// M4 — exam engine
-export const questionType = v.union(v.literal("mcq"), v.literal("truefalse"));
+// M4 — exam engine (M8 adds fillblank/matching/ordering/essay)
+export const questionType = v.union(
+  v.literal("mcq"),
+  v.literal("truefalse"),
+  v.literal("fillblank"),
+  v.literal("matching"),
+  v.literal("ordering"),
+  v.literal("essay"),
+);
 export const difficulty = v.union(
   v.literal("easy"),
   v.literal("medium"),
@@ -57,7 +64,13 @@ export const announcementScope = v.union(
 export type StaffRole = "admin" | "teacher";
 export type AttendanceStatus = "present" | "absent" | "late";
 export type LessonSource = "timetable" | "adhoc";
-export type QuestionType = "mcq" | "truefalse";
+export type QuestionType =
+  | "mcq"
+  | "truefalse"
+  | "fillblank"
+  | "matching"
+  | "ordering"
+  | "essay";
 export type Difficulty = "easy" | "medium" | "hard";
 export type ExamStatus = "draft" | "published" | "closed";
 export type AttemptStatus = "in_progress" | "submitted";

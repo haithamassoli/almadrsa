@@ -11,19 +11,43 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { requireTeacher, type StaffUser } from "./auth";
 import { awardForExam } from "./gamification";
 import { logAudit } from "./lib/audit";
-import { gradeAnswers } from "./lib/grading";
+import {
+  gradeAnswers,
+  hasEssay,
+  round2,
+  splitScores,
+  sumManualScores,
+} from "./lib/grading";
 import { formatDateAr, notifyClass, notifyStudents } from "./lib/notify";
-import { difficulty, examStatus, questionType } from "./lib/validators";
+import {
+  attemptStatus,
+  difficulty,
+  examStatus,
+  questionType,
+} from "./lib/validators";
+import {
+  blankValidator,
+  itemValidator,
+  optionValidator,
+  pairValidator,
+} from "./questions";
 
 /**
- * M4 — exams (staff side). An exam is a titled, marked selection of bank
+ * M4/M8 — exams (staff side). An exam is a titled, marked selection of bank
  * questions for one (class, subject), with an availability window and a per-
  * attempt time limit. Lifecycle: draft (editable) → published (students may
  * attempt; auto-close scheduled at windowEnd) → closed (sweep auto-submits
- * stragglers). Owner-or-admin on every function. Domain errors use
- * `ConvexError` codes the RTL UI maps to Arabic messages:
+ * stragglers). Owner-or-admin on every function.
+ *
+ * M8 manual grading: an exam with ≥1 essay question withholds results until
+ * every essay of the attempt has a manual score (gradedAt stamp) — submit/
+ * expire/close send a "received" notification instead of the score, and the
+ * gamification award is deferred to grading completion (exams.gradeEssay).
+ *
+ * Domain errors use `ConvexError` codes the RTL UI maps to Arabic messages:
  *   not_found · not_assigned · invalid_exam · exam_not_editable
  *   window_past · exam_not_published · not_submitted · invalid_score
+ *   invalid_grading
  */
 
 const examQuestionValidator = v.object({
@@ -40,6 +64,7 @@ const examCreateFields = {
   windowStart: v.number(),
   windowEnd: v.number(),
   timeLimitMinutes: v.number(),
+  shuffle: v.optional(v.boolean()), // undefined ⇒ true
 };
 const examUpdateFields = {
   title: v.optional(v.string()),
@@ -49,6 +74,7 @@ const examUpdateFields = {
   windowStart: v.optional(v.number()),
   windowEnd: v.optional(v.number()),
   timeLimitMinutes: v.optional(v.number()),
+  shuffle: v.optional(v.boolean()),
 };
 
 // ——— Shared helpers ———
@@ -186,6 +212,10 @@ async function closeSweep(
   if (inProgress.length === 0) return;
 
   const questionDocs = await loadQuestionDocs(ctx, exam.questions);
+  // M8: essay exams withhold results — the score is only final once every
+  // essay is manually graded, so the sweep sends a "received" note and the
+  // gamification award is deferred to grading completion (gradeEssay).
+  const examHasEssay = hasEssay(exam.questions, questionDocs);
   const now = Date.now();
   // M6: swept auto-submissions earn exam points too (UTC day key — same
   // convention as attempts.submit).
@@ -204,6 +234,16 @@ async function closeSweep(
     });
     if (attempt.expireFnId !== undefined) {
       await ctx.scheduler.cancel(attempt.expireFnId);
+    }
+    if (examHasEssay) {
+      await notifyStudents(ctx, [attempt.studentId], {
+        type: "result",
+        title: `استلمنا إجاباتك: ${exam.title}`,
+        body: "ستصلك النتيجة بعد اكتمال التصحيح",
+        refType: "exam",
+        refId: exam._id,
+      });
+      continue;
     }
     // M6: award exam points on the swept auto score.
     await awardForExam(ctx, {
@@ -328,15 +368,22 @@ export const get = query({
     windowEnd: v.number(),
     timeLimitMinutes: v.number(),
     totalMarks: v.number(),
+    shuffle: v.optional(v.boolean()), // undefined ⇒ true
     questions: v.array(
       v.object({
         questionId: v.id("questions"),
         marks: v.number(),
         type: questionType,
         text: v.string(),
-        options: v.array(v.object({ id: v.string(), text: v.string() })),
+        options: v.array(optionValidator),
         correctOptionId: v.optional(v.string()),
         correctBool: v.optional(v.boolean()),
+        blanks: v.optional(v.array(blankValidator)),
+        pairs: v.optional(v.array(pairValidator)),
+        items: v.optional(v.array(itemValidator)),
+        rubricText: v.optional(v.string()),
+        imageId: v.optional(v.id("_storage")),
+        imageUrl: v.optional(v.string()),
         topic: v.optional(v.string()),
         difficulty: difficulty,
       }),
@@ -360,6 +407,15 @@ export const get = query({
         options: question.options,
         correctOptionId: question.correctOptionId,
         correctBool: question.correctBool,
+        blanks: question.blanks,
+        pairs: question.pairs,
+        items: question.items,
+        rubricText: question.rubricText,
+        imageId: question.imageId,
+        imageUrl:
+          question.imageId !== undefined
+            ? ((await ctx.storage.getUrl(question.imageId)) ?? undefined)
+            : undefined,
         topic: question.topic,
         difficulty: question.difficulty,
       });
@@ -378,6 +434,7 @@ export const get = query({
       windowEnd: exam.windowEnd,
       timeLimitMinutes: exam.timeLimitMinutes,
       totalMarks: exam.totalMarks,
+      shuffle: exam.shuffle,
       questions,
     };
   },
@@ -386,6 +443,9 @@ export const get = query({
 /**
  * Marking overview (owner-or-admin): the class's active roster LEFT JOINed
  * with this exam's attempts, plus stats over submitted effective scores.
+ * M8: effectiveScore = override ?? (autoScore + Σ manualScores); rows carry
+ * gradingPending (essay exam, not yet fully graded) and stats only count
+ * fully-graded (or essay-free) submitted attempts.
  */
 export const results = query({
   args: { examId: v.id("exams") },
@@ -403,6 +463,7 @@ export const results = query({
         autoScore: v.optional(v.number()),
         overrideScore: v.optional(v.number()),
         effectiveScore: v.optional(v.number()),
+        gradingPending: v.boolean(),
         submittedAt: v.optional(v.number()),
       }),
     ),
@@ -417,6 +478,8 @@ export const results = query({
   handler: async (ctx, args) => {
     const staff = await requireTeacher(ctx);
     const exam = await requireExamOwner(ctx, staff, args.examId);
+    const questionDocs = await loadQuestionDocs(ctx, exam.questions);
+    const examHasEssay = hasEssay(exam.questions, questionDocs);
 
     const attempts = await ctx.db
       .query("examAttempts")
@@ -442,6 +505,7 @@ export const results = query({
       autoScore?: number;
       overrideScore?: number;
       effectiveScore?: number;
+      gradingPending: boolean;
       submittedAt?: number;
     }> = [];
     const effectiveScores: Array<number> = [];
@@ -453,6 +517,7 @@ export const results = query({
         studentId: student._id,
         studentName: `${student.firstName} ${student.lastName}`,
         status: attempt?.status ?? "not_started",
+        gradingPending: false,
       };
       if (attempt) {
         row.attemptId = attempt._id;
@@ -460,9 +525,15 @@ export const results = query({
         row.overrideScore = attempt.overrideScore;
         row.submittedAt = attempt.submittedAt;
         if (attempt.status === "submitted") {
-          const effective = attempt.overrideScore ?? attempt.autoScore;
+          row.gradingPending = examHasEssay && attempt.gradedAt === undefined;
+          const effective =
+            attempt.overrideScore ??
+            round2(
+              (attempt.autoScore ?? 0) + sumManualScores(attempt.manualScores),
+            );
           row.effectiveScore = effective;
-          if (effective !== undefined) effectiveScores.push(effective);
+          // Stats only over final scores: fully graded or essay-free.
+          if (!row.gradingPending) effectiveScores.push(effective);
         }
       }
       rows.push(row);
@@ -487,6 +558,157 @@ export const results = query({
   },
 });
 
+/** The essay question ids of an exam, in exam order. */
+function essayQuestionIds(
+  exam: Doc<"exams">,
+  questionDocs: Map<string, Doc<"questions">>,
+): Array<Id<"questions">> {
+  return exam.questions
+    .map((examQuestion) => examQuestion.questionId)
+    .filter((questionId) => questionDocs.get(questionId)?.type === "essay");
+}
+
+/**
+ * M8 — the exam's manual-grading worklist (owner-or-admin): submitted
+ * attempts still awaiting grading (≥1 essay, no gradedAt stamp), oldest
+ * submission first. Empty for essay-free exams.
+ */
+export const gradingQueue = query({
+  args: { examId: v.id("exams") },
+  returns: v.array(
+    v.object({
+      attemptId: v.id("examAttempts"),
+      studentName: v.string(),
+      submittedAt: v.optional(v.number()),
+      essayCount: v.number(),
+      gradedCount: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const staff = await requireTeacher(ctx);
+    const exam = await requireExamOwner(ctx, staff, args.examId);
+    const questionDocs = await loadQuestionDocs(ctx, exam.questions);
+    const essayIds = essayQuestionIds(exam, questionDocs);
+    if (essayIds.length === 0) return [];
+
+    const attempts = await ctx.db
+      .query("examAttempts")
+      .withIndex("by_examId", (q) => q.eq("examId", exam._id))
+      .take(500);
+    const rows = [];
+    for (const attempt of attempts) {
+      if (attempt.status !== "submitted" || attempt.gradedAt !== undefined) {
+        continue;
+      }
+      const student = await ctx.db.get("students", attempt.studentId);
+      rows.push({
+        attemptId: attempt._id,
+        studentName: student
+          ? `${student.firstName} ${student.lastName}`
+          : "",
+        submittedAt: attempt.submittedAt,
+        essayCount: essayIds.length,
+        gradedCount: essayIds.filter(
+          (questionId) => attempt.manualScores?.[questionId] !== undefined,
+        ).length,
+      });
+    }
+    rows.sort((a, b) => (a.submittedAt ?? 0) - (b.submittedAt ?? 0));
+    return rows;
+  },
+});
+
+/**
+ * M8 — one attempt prepared for the grading screen (owner-or-admin, resolved
+ * through the attempt's exam): every essay question with the student's text,
+ * the rubric, current score/feedback, plus the attempt's non-essay auto
+ * summary (autoScore over autoMarks; essays are worth essayMarks).
+ */
+export const attemptForGrading = query({
+  args: { attemptId: v.id("examAttempts") },
+  returns: v.object({
+    attemptId: v.id("examAttempts"),
+    examId: v.id("exams"),
+    examTitle: v.string(),
+    studentName: v.string(),
+    status: attemptStatus,
+    submittedAt: v.optional(v.number()),
+    gradedAt: v.optional(v.number()),
+    maxScore: v.number(),
+    autoScore: v.optional(v.number()), // non-essay part (essays grade 0)
+    autoMarks: v.number(),
+    essayMarks: v.number(),
+    essays: v.array(
+      v.object({
+        questionId: v.id("questions"),
+        text: v.string(),
+        rubricText: v.optional(v.string()),
+        imageUrl: v.optional(v.string()),
+        marks: v.number(),
+        studentAnswer: v.union(v.string(), v.null()),
+        currentScore: v.optional(v.number()),
+        currentFeedback: v.object({
+          text: v.optional(v.string()),
+          audioUrl: v.optional(v.string()),
+        }),
+      }),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const staff = await requireTeacher(ctx);
+    const attempt = await ctx.db.get("examAttempts", args.attemptId);
+    if (!attempt) throw new ConvexError("not_found");
+    const exam = await requireExamOwner(ctx, staff, attempt.examId);
+    const student = await ctx.db.get("students", attempt.studentId);
+    const questionDocs = await loadQuestionDocs(ctx, exam.questions);
+    const { autoMarks, essayMarks } = splitScores(exam.questions, questionDocs);
+
+    const essays = [];
+    for (const examQuestion of exam.questions) {
+      const question = questionDocs.get(examQuestion.questionId);
+      if (!question || question.type !== "essay") continue;
+      const answer = attempt.answers[examQuestion.questionId];
+      const feedback = attempt.feedback?.[examQuestion.questionId];
+      essays.push({
+        questionId: examQuestion.questionId,
+        text: question.text,
+        rubricText: question.rubricText,
+        imageUrl:
+          question.imageId !== undefined
+            ? ((await ctx.storage.getUrl(question.imageId)) ?? undefined)
+            : undefined,
+        marks: examQuestion.marks,
+        studentAnswer: typeof answer === "string" ? answer : null,
+        currentScore: attempt.manualScores?.[examQuestion.questionId],
+        currentFeedback: {
+          text: feedback?.text,
+          audioUrl:
+            feedback?.audioId !== undefined
+              ? ((await ctx.storage.getUrl(feedback.audioId)) ?? undefined)
+              : undefined,
+        },
+      });
+    }
+
+    return {
+      attemptId: attempt._id,
+      examId: exam._id,
+      examTitle: exam.title,
+      studentName: student
+        ? `${student.firstName} ${student.lastName}`
+        : "",
+      status: attempt.status,
+      submittedAt: attempt.submittedAt,
+      gradedAt: attempt.gradedAt,
+      maxScore: attempt.maxScore,
+      autoScore: attempt.autoScore,
+      autoMarks,
+      essayMarks,
+      essays,
+    };
+  },
+});
+
 // ——— Mutations ———
 
 /** Create a draft exam for a (class, subject) the caller teaches. */
@@ -507,6 +729,7 @@ export const create = mutation({
       timeLimitMinutes: args.timeLimitMinutes,
       status: "draft",
       totalMarks,
+      shuffle: args.shuffle, // undefined ⇒ true
     });
     await logAudit(ctx, {
       actorType: "staff",
@@ -560,6 +783,7 @@ export const update = mutation({
       windowEnd: effective.windowEnd,
       timeLimitMinutes: effective.timeLimitMinutes,
       totalMarks,
+      shuffle: args.shuffle ?? exam.shuffle,
     });
     return null;
   },
@@ -674,6 +898,141 @@ export const closeExam = internalMutation({
     const exam = await ctx.db.get("exams", args.examId);
     if (!exam || exam.status !== "published") return null;
     await closeSweep(ctx, exam);
+    return null;
+  },
+});
+
+const MAX_FEEDBACK_TEXT_LENGTH = 2000;
+
+/**
+ * M8 — grade one essay answer of a SUBMITTED attempt (owner-or-admin):
+ * merge the manual score (0 ≤ score ≤ that question's frozen marks) and the
+ * optional feedback (text and/or a voice-note storage id). When the merge
+ * completes the LAST ungraded essay of the exam, the attempt is stamped
+ * gradedAt/gradedBy, the student is notified with the combined total
+ * (auto + Σ manual), and the deferred gamification award fires — exactly
+ * once, since awardOnce dedupes on the attempt id. Re-grading after
+ * completion adjusts scores silently (use overrideScore to notify a
+ * correction).
+ *
+ * Feedback merge semantics: an omitted feedbackText/feedbackAudioId keeps
+ * the existing value; feedbackText of only whitespace clears the text.
+ */
+export const gradeEssay = mutation({
+  args: {
+    attemptId: v.id("examAttempts"),
+    questionId: v.id("questions"),
+    score: v.number(), // range-checked below: finite, 0 ≤ score ≤ marks
+    feedbackText: v.optional(v.string()),
+    feedbackAudioId: v.optional(v.id("_storage")),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const staff = await requireTeacher(ctx);
+    const attempt = await ctx.db.get("examAttempts", args.attemptId);
+    if (!attempt) throw new ConvexError("not_found");
+    const exam = await requireExamOwner(ctx, staff, attempt.examId);
+    if (attempt.status !== "submitted") {
+      throw new ConvexError("not_submitted");
+    }
+
+    // The question must be an ESSAY question OF THIS EXAM.
+    const examQuestion = exam.questions.find(
+      (q) => q.questionId === args.questionId,
+    );
+    if (!examQuestion) throw new ConvexError("invalid_grading");
+    const question = await ctx.db.get("questions", args.questionId);
+    if (!question || question.type !== "essay") {
+      throw new ConvexError("invalid_grading");
+    }
+    if (
+      !Number.isFinite(args.score) ||
+      args.score < 0 ||
+      args.score > examQuestion.marks
+    ) {
+      throw new ConvexError("invalid_score");
+    }
+    if (
+      args.feedbackText !== undefined &&
+      args.feedbackText.length > MAX_FEEDBACK_TEXT_LENGTH
+    ) {
+      throw new ConvexError("invalid_grading");
+    }
+
+    const manualScores: Record<Id<"questions">, number> = {
+      ...(attempt.manualScores ?? {}),
+      [args.questionId]: args.score,
+    };
+    const existingFeedback = attempt.feedback?.[args.questionId];
+    const feedbackTextTrimmed = args.feedbackText?.trim();
+    const mergedEntry = {
+      text:
+        args.feedbackText === undefined
+          ? existingFeedback?.text
+          : feedbackTextTrimmed !== undefined && feedbackTextTrimmed.length > 0
+            ? feedbackTextTrimmed
+            : undefined,
+      audioId: args.feedbackAudioId ?? existingFeedback?.audioId,
+    };
+    const feedback = {
+      ...(attempt.feedback ?? {}),
+      [args.questionId]: mergedEntry,
+    };
+    await ctx.db.patch("examAttempts", args.attemptId, {
+      manualScores,
+      feedback,
+    });
+    await logAudit(ctx, {
+      actorType: "staff",
+      actorId: staff.id,
+      action: "exam.grade_essay",
+      targetType: "examAttempt",
+      targetId: args.attemptId,
+      meta: { questionId: args.questionId, score: args.score },
+    });
+
+    // Completion check: every essay question of the exam now has a manual
+    // score, and this is the FIRST completion (gradedAt not yet stamped).
+    const questionDocs = await loadQuestionDocs(ctx, exam.questions);
+    const essayIds = essayQuestionIds(exam, questionDocs);
+    const allGraded = essayIds.every(
+      (questionId) => manualScores[questionId] !== undefined,
+    );
+    if (!allGraded || attempt.gradedAt !== undefined) return null;
+
+    const now = Date.now();
+    await ctx.db.patch("examAttempts", args.attemptId, {
+      gradedAt: now,
+      gradedBy: staff.id,
+    });
+    await logAudit(ctx, {
+      actorType: "staff",
+      actorId: staff.id,
+      action: "exam.grade_essay_complete",
+      targetType: "examAttempt",
+      targetId: args.attemptId,
+      meta: { examId: exam._id },
+    });
+    const total = round2(
+      (attempt.autoScore ?? 0) + sumManualScores(manualScores),
+    );
+    await notifyStudents(ctx, [attempt.studentId], {
+      type: "result",
+      title: `ظهرت نتيجتك: ${exam.title}`,
+      body: `${total}/${attempt.maxScore}`,
+      refType: "exam",
+      refId: exam._id,
+    });
+    // M6 award, deferred from submit for essay exams — combined total.
+    // awardOnce dedupes on the attempt id, so only the first completion
+    // (or an earlier essay-free submit path) ever awards.
+    await awardForExam(ctx, {
+      studentId: attempt.studentId,
+      attemptId: args.attemptId,
+      autoScore: total,
+      maxScore: attempt.maxScore,
+      day: new Date(now).toISOString().slice(0, 10),
+    });
     return null;
   },
 });

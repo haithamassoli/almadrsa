@@ -41,6 +41,10 @@ export const exams = {
   allTypes: "كل الأنواع",
   typeMcq: "اختيار من متعدد",
   typeTruefalse: "صح أو خطأ",
+  typeFillblank: "ملء الفراغ",
+  typeMatching: "مطابقة",
+  typeOrdering: "ترتيب",
+  typeEssay: "مقالي",
   difficultyEasy: "سهل",
   difficultyMedium: "متوسط",
   difficultyHard: "صعب",
@@ -113,4 +117,50 @@ export const exams = {
   errNotPublished: "هذا الإجراء متاح للاختبارات المنشورة فقط.",
   errInvalidScore: "الدرجة غير صالحة. يجب أن تكون بين صفر والدرجة الكلية.",
   errNotSubmitted: "لا يمكن تعديل الدرجة قبل تسليم المحاولة.",
+  errInvalidGrading: "بيانات التصحيح غير صالحة.",
+
+  // M8 — shuffle
+  fieldShuffle: "خلط الأسئلة والخيارات لكل طالب",
+  shuffleHint: "يظهر لكل طالب ترتيب مختلف للأسئلة وخيارات الاختيار من متعدد.",
+
+  // M8 — grading queue (exam detail)
+  gradingQueueTitle: "طابور التصحيح",
+  gradingPendingCount: "{n} محاولة بانتظار التصحيح",
+  gradingAllDone: "لا توجد محاولات بانتظار التصحيح.",
+  gradingOpen: "فتح التصحيح",
+  pendingGradingBadge: "بانتظار التصحيح",
+
+  // M8 — grading page
+  gradingTitle: "التصحيح",
+  gradingQueueHeading: "المحاولات",
+  gradingQueueEmptyTitle: "لا شيء بانتظار التصحيح",
+  gradingQueueEmptyBody:
+    "تظهر هنا المحاولات المسلَّمة التي تتضمن أسئلة مقالية لم يكتمل تصحيحها.",
+  gradingSelectPrompt: "اختر محاولة من القائمة لبدء التصحيح.",
+  gradingAttemptOf: "فتح محاولة {name}",
+  gradingAutoSummary: "الأسئلة الآلية: {score}/{max}",
+  gradingEssaySummary: "الأسئلة المقالية: {n} درجة",
+  gradingEssayTitle: "السؤال المقالي {n}",
+  gradingRubric: "معايير التصحيح",
+  gradingStudentAnswer: "إجابة الطالب",
+  gradingScoreLabel: "الدرجة (من {max})",
+  gradingFeedbackLabel: "ملاحظة كتابية (اختياري)",
+  gradingVoiceLabel: "ملاحظة صوتية (اختياري)",
+  gradingSave: "حفظ التصحيح",
+  gradingSaved: "حُفظ التصحيح.",
+  gradingGradedBadge: "مُصحَّح",
+  gradingCompleteNote: "اكتمل تصحيح هذه المحاولة، وظهرت نتيجتها للطالب.",
+  gradingFinalScore: "الدرجة النهائية: {score}/{max}",
+  voiceUploadError: "تعذّر رفع الملاحظة الصوتية. حاول مرة أخرى.",
+
+  // M8 — voice recorder (used by the grading screen)
+  recStart: "تسجيل ملاحظة صوتية",
+  recStop: "إيقاف التسجيل",
+  recRedo: "إعادة التسجيل",
+  recRemove: "حذف التسجيل",
+  recRemainingLabel: "الوقت المتبقي: {time}",
+  recMaxNote: "الحد الأقصى 5 دقائق.",
+  recUnsupported: "متصفحك لا يدعم التسجيل الصوتي.",
+  recPermissionDenied:
+    "تعذّر الوصول إلى الميكروفون. اسمح باستخدامه من إعدادات المتصفح ثم أعد المحاولة.",
 } as const;

@@ -7,6 +7,7 @@ import {
   studentAnnouncementValidator,
 } from "./announcements";
 import { staffNamesById } from "./notes";
+import { round2, sumManualScores } from "./lib/grading";
 import { attendanceStatus, type AttendanceStatus } from "./lib/validators";
 
 /**
@@ -295,14 +296,43 @@ export const examClassStats = query({
       throw new ConvexError("not_found");
     }
 
+    // M8: essay exams withhold scores (mine and the class's) until grading
+    // completes — an ungraded attempt neither sees stats nor deflates them
+    // with its auto-only score.
+    const exam = await ctx.db.get("exams", args.examId);
+    let examHasEssay = false;
+    if (exam) {
+      for (const examQuestion of exam.questions) {
+        const question = await ctx.db.get("questions", examQuestion.questionId);
+        if (question?.type === "essay") {
+          examHasEssay = true;
+          break;
+        }
+      }
+    }
+    if (examHasEssay && myAttempt.gradedAt === undefined) {
+      throw new ConvexError("not_found");
+    }
+    const effectiveOf = (
+      attempt: Doc<"examAttempts">,
+    ): number | undefined => {
+      if (attempt.status !== "submitted") return undefined;
+      if (examHasEssay && attempt.gradedAt === undefined) return undefined;
+      return (
+        attempt.overrideScore ??
+        round2(
+          (attempt.autoScore ?? 0) + sumManualScores(attempt.manualScores),
+        )
+      );
+    };
+
     const attempts = await ctx.db
       .query("examAttempts")
       .withIndex("by_examId", (q) => q.eq("examId", args.examId))
       .take(500);
     const scores: Array<number> = [];
     for (const attempt of attempts) {
-      if (attempt.status !== "submitted") continue;
-      const effective = attempt.overrideScore ?? attempt.autoScore;
+      const effective = effectiveOf(attempt);
       if (effective !== undefined) scores.push(effective);
     }
     const sum = scores.reduce((total, score) => total + score, 0);
@@ -311,7 +341,7 @@ export const examClassStats = query({
         scores.length > 0 ? Math.round((sum / scores.length) * 10) / 10 : 0,
       classMax: scores.length > 0 ? Math.max(...scores) : 0,
       submittedCount: scores.length,
-      myScore: myAttempt.overrideScore ?? myAttempt.autoScore ?? 0,
+      myScore: effectiveOf(myAttempt) ?? 0,
       maxScore: myAttempt.maxScore,
     };
   },

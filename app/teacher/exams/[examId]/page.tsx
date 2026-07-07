@@ -4,7 +4,15 @@ import { Component, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowRight, Lock, Pencil, SearchX, Send, Trash2 } from "lucide-react";
+import {
+  ArrowRight,
+  ClipboardCheck,
+  Lock,
+  Pencil,
+  SearchX,
+  Send,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -61,6 +69,7 @@ type ResultRow = {
   autoScore?: number;
   overrideScore?: number;
   effectiveScore?: number;
+  gradingPending: boolean;
   submittedAt?: number;
 };
 
@@ -153,6 +162,13 @@ function ExamView({ examId }: { examId: Id<"exams"> }) {
   const [removing, setRemoving] = useState(false);
   const exam = useQuery(api.exams.get, removing ? "skip" : { examId });
   const results = useQuery(api.exams.results, removing ? "skip" : { examId });
+  // M8 — manual-grading worklist, only meaningful for essay exams.
+  const examHasEssay =
+    exam !== undefined && exam.questions.some((q) => q.type === "essay");
+  const gradingQueue = useQuery(
+    api.exams.gradingQueue,
+    removing || !examHasEssay ? "skip" : { examId },
+  );
 
   const publishExam = useMutation(api.exams.publish);
   const closeExam = useMutation(api.exams.closeNow);
@@ -308,6 +324,40 @@ function ExamView({ examId }: { examId: Id<"exams"> }) {
         </div>
       ) : null}
 
+      {/* M8 — manual-grading queue (essay exams only) */}
+      {examHasEssay ? (
+        <Card className="rounded-2xl">
+          <CardContent className="flex flex-wrap items-center gap-3">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <h2 className="font-bold">{t("exams.gradingQueueTitle")}</h2>
+              {gradingQueue === undefined ? (
+                <Skeleton className="h-4 w-40" />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {gradingQueue.length > 0
+                    ? t("exams.gradingPendingCount", {
+                        n: formatNumber(gradingQueue.length),
+                      })
+                    : t("exams.gradingAllDone")}
+                </p>
+              )}
+            </div>
+            <Button
+              variant={
+                gradingQueue !== undefined && gradingQueue.length > 0
+                  ? "default"
+                  : "outline"
+              }
+              nativeButton={false}
+              render={<Link href={`/teacher/exams/${examId}/grading`} />}
+            >
+              <ClipboardCheck />
+              {t("exams.gradingOpen")}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {/* Live results */}
       <section className="flex flex-col gap-4">
         <h2 className="text-lg font-bold">{t("exams.resultsTitle")}</h2>
@@ -408,8 +458,12 @@ function ExamView({ examId }: { examId: Id<"exams"> }) {
                           <RowStatusBadge status={row.status} />
                         </TableCell>
                         <TableCell>
-                          {row.status === "submitted" &&
-                          row.effectiveScore !== undefined ? (
+                          {row.status === "submitted" && row.gradingPending ? (
+                            <Badge className="border-transparent bg-accent text-accent-foreground">
+                              {t("exams.pendingGradingBadge")}
+                            </Badge>
+                          ) : row.status === "submitted" &&
+                            row.effectiveScore !== undefined ? (
                             <span className="inline-flex items-center gap-1.5">
                               <span className="tabular-nums">
                                 {formatNumber(row.effectiveScore)}/
