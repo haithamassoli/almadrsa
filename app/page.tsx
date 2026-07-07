@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { GraduationCap, KeyRound, Users } from "lucide-react";
+import { KeyRound, Users } from "lucide-react";
+import { LogoMark } from "@/components/app-shell/logo-mark";
 import { LiveIndicator } from "@/components/live-indicator";
 import { t } from "@/lib/i18n";
 
@@ -22,9 +23,7 @@ export default function Home() {
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-10 px-6 py-16">
       <header className="flex flex-col items-center gap-3 text-center">
-        <div className="flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-          <GraduationCap className="size-7" aria-hidden />
-        </div>
+        <LogoMark className="size-14" />
         <h1 className="text-4xl font-black tracking-tight">
           {t("common.appName")}
         </h1>

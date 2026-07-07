@@ -8,12 +8,12 @@ import {
   Bell,
   CalendarCheck,
   ClipboardList,
-  GraduationCap,
   Home,
   LogOut,
   Megaphone,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { LogoMark } from "@/components/app-shell/logo-mark";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { ThemeToggle } from "@/components/app-shell/theme-toggle";
@@ -139,9 +139,7 @@ export default function PortalLayout({
   return (
     <div className="flex flex-1 flex-col">
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur">
-        <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <GraduationCap className="size-4" aria-hidden />
-        </span>
+        <LogoMark className="size-8" />
         <div className="flex flex-1 flex-col">
           <span className="text-sm font-bold">{t("common.appName")}</span>
           <span className="text-xs text-muted-foreground">

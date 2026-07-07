@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { GraduationCap } from "lucide-react";
+import { LogoMark } from "@/components/app-shell/logo-mark";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -65,9 +65,7 @@ function LoginForm() {
   return (
     <Card className="w-full max-w-sm">
       <CardHeader className="text-center">
-        <div className="mx-auto mb-2 flex size-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-          <GraduationCap className="size-6" aria-hidden />
-        </div>
+        <LogoMark className="mx-auto mb-2 size-12" />
         <CardTitle className="text-xl">{t("auth.staffLogin")}</CardTitle>
         <CardDescription>{t("auth.loginRequired")}</CardDescription>
       </CardHeader>
