@@ -134,8 +134,8 @@ Ships: installable app that pings parents.
 - [x] Teacher ↔ parent threads, unread counts, notification trigger
 
 ### M14 — Library & calendar
-- [ ] Library resources CRUD (title + link, subject/class) + portal view
-- [ ] Interactive calendar: lessons, exam windows, homework deadlines, holidays/events (admin CRUD), filter by role/class
+- [x] Library resources CRUD (title + link, subject/class) + portal view
+- [x] Interactive calendar: lessons, exam windows, homework deadlines, holidays/events (admin CRUD), filter by role/class
 
 ### M15 — Exam integrity v2, exports, channels
 - [ ] Unique exam version per student from bank (topic/difficulty mix constraints)

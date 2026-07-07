@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useQuery } from "convex/react";
-import { Inbox } from "lucide-react";
+import { CalendarDays, Inbox } from "lucide-react";
+import Link from "next/link";
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Empty,
   EmptyDescription,
@@ -131,9 +133,19 @@ export default function PortalAttendancePage() {
 
   return (
     <div className="flex flex-1 flex-col gap-6">
-      <h1 className="heading-rule text-2xl font-black">
-        {t("portal.attendanceHistoryTitle")}
-      </h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="heading-rule text-2xl font-black">
+          {t("portal.attendanceHistoryTitle")}
+        </h1>
+        <Button
+          variant="outline"
+          size="sm"
+          render={<Link href="/portal/calendar" />}
+        >
+          <CalendarDays />
+          {t("calendarUi.title")}
+        </Button>
+      </div>
 
       {/* Date range */}
       <div className="grid grid-cols-2 gap-3">

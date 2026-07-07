@@ -422,6 +422,31 @@ export default defineSchema({
     sentAt: v.number(),
   }).index("by_threadId", ["threadId"]),
 
+  // ——— M14: digital library + interactive calendar ———
+  // Teaching material links owned by the staff member who added them.
+  // `classId` narrows a resource to one class; undefined shares it with
+  // every class of the subject's grade (the portal merges both scopes).
+  libraryResources: defineTable({
+    title: v.string(), // 1–200 chars, enforced in mutations
+    url: v.string(), // http(s) only, enforced in mutations
+    subjectId: v.id("subjects"),
+    classId: v.optional(v.id("classes")), // undefined = whole-grade resource
+    teacherId: v.string(), // Better Auth user id (owner)
+  })
+    .index("by_subjectId", ["subjectId"])
+    .index("by_classId", ["classId"])
+    .index("by_teacherId", ["teacherId"]),
+
+  // School events & holidays for the calendar. One day (`date`) or an
+  // inclusive span through `endDate`; calendar views key on the start day.
+  events: defineTable({
+    title: v.string(), // 1–200 chars, enforced in mutations
+    date: v.string(), // "YYYY-MM-DD" date key (start day)
+    endDate: v.optional(v.string()), // "YYYY-MM-DD", inclusive, ≥ date
+    kind: v.union(v.literal("holiday"), v.literal("event")),
+    classId: v.optional(v.id("classes")), // undefined = school-wide
+  }).index("by_date", ["date"]),
+
   // ——— Cross-cutting ———
   auditLog: defineTable({
     actorType: actorType,

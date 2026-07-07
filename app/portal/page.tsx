@@ -6,6 +6,7 @@ import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import {
   ArrowLeft,
+  BookMarked,
   ChevronLeft,
   FileText,
   Flame,
@@ -225,6 +226,38 @@ function MessagesLinkCard({ sessionToken }: { sessionToken: string }) {
               {formatNumber(unread ?? 0)}
             </Badge>
           ) : null}
+          <ChevronLeft
+            aria-hidden
+            className="size-5 shrink-0 text-muted-foreground transition-colors group-hover:text-primary group-focus-visible:text-primary"
+          />
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+// ——— Library shortcut (sits by the reports/messages cards) ———
+
+function LibraryLinkCard() {
+  return (
+    <Link
+      href="/portal/library"
+      className="group rounded-2xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+    >
+      <Card className="rounded-2xl">
+        <CardContent className="flex items-center gap-3">
+          <span
+            aria-hidden
+            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted/50 text-primary"
+          >
+            <BookMarked className="size-5" />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <span className="font-bold">{t("library.homeCardTitle")}</span>
+            <span className="truncate text-xs text-muted-foreground">
+              {t("library.homeCardBody")}
+            </span>
+          </div>
           <ChevronLeft
             aria-hidden
             className="size-5 shrink-0 text-muted-foreground transition-colors group-hover:text-primary group-focus-visible:text-primary"
@@ -496,6 +529,7 @@ export default function PortalHome() {
       <GamificationStrip gamification={home.gamification} />
       <ReportsLinkCard />
       {sessionToken ? <MessagesLinkCard sessionToken={sessionToken} /> : null}
+      <LibraryLinkCard />
       <TodayCard lessons={home.todayLessons} />
       <ResultsCard results={home.recentResults} />
       <AttendanceCard summary={home.attendance} />
