@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { Pencil, Plus, School } from "lucide-react";
 import { toast } from "sonner";
@@ -42,12 +42,9 @@ type ClassRow = { _id: Id<"classes">; name: string };
 
 export function ClassesTab() {
   const grades = useQuery(api.academics.listGrades);
-  const [gradeId, setGradeId] = useState<Id<"grades"> | null>(null);
-  useEffect(() => {
-    if (gradeId === null && grades && grades.length > 0) {
-      setGradeId(grades[0]._id);
-    }
-  }, [grades, gradeId]);
+  const [pickedGradeId, setGradeId] = useState<Id<"grades"> | null>(null);
+  // Default to the first grade once loaded; derived, not synced via effect.
+  const gradeId = pickedGradeId ?? grades?.[0]?._id ?? null;
 
   const classes = useQuery(
     api.academics.listClassesByGrade,

@@ -54,6 +54,7 @@ export const students = {
   errInvalidGuardianName: "اسم ولي الأمر غير صالح",
   errInvalidPhone: "رقم الهاتف غير صالح",
   errClassNotFound: "الشعبة غير موجودة",
+  errClassAmbiguous: "اسم الشعبة مكرر في أكثر من صف — حدِّده يدويًا",
   errTooManyRows: "عدد الصفوف يتجاوز الحد الأقصى (500)",
   errNotFound: "الطالب غير موجود",
 } as const;

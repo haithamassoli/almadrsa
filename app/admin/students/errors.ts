@@ -8,6 +8,7 @@ const ERROR_KEYS = {
   invalid_guardianName: "students.errInvalidGuardianName",
   invalid_phone: "students.errInvalidPhone",
   class_not_found: "students.errClassNotFound",
+  class_ambiguous: "students.errClassAmbiguous",
   too_many_rows: "students.errTooManyRows",
   not_found: "students.errNotFound",
 } as const;

@@ -336,13 +336,20 @@ export const listStudents = query({
       throw new ConvexError("class_required");
     }
     const status = args.status;
+    // When searching we must scan the whole school, not just the newest 200,
+    // or matches past the cap silently vanish. A single school is bounded to
+    // low thousands of students, so a full scan stays well within query
+    // limits. ponytail: full scan up to WHOLE_SCHOOL_SCAN; add a students
+    // search index if a tenant ever exceeds that.
+    const WHOLE_SCHOOL_SCAN = 5000;
+    const limit = search ? WHOLE_SCHOOL_SCAN : 200;
     const students =
       status !== undefined
         ? await ctx.db
             .query("students")
             .withIndex("by_status", (q) => q.eq("status", status))
-            .take(200)
-        : await ctx.db.query("students").take(200);
+            .take(limit)
+        : await ctx.db.query("students").take(limit);
     const classNameCache = new Map<Id<"classes">, string | undefined>();
     const rows: Array<StudentListRow> = [];
     for (const student of students) {
@@ -785,10 +792,15 @@ export const bulkImport = mutation({
     }
 
     // Exact-name → id map, built once. Classes are a small bounded set.
+    // Section names ("أ"/"ب") legitimately repeat across grades, so a
+    // duplicate name is ambiguous, not last-wins — those rows must fail
+    // loudly rather than enroll a child in an arbitrary class.
     const classes = await ctx.db.query("classes").take(500);
-    const classIdByName = new Map<string, Id<"classes">>(
-      classes.map((c) => [c.name.trim(), c._id]),
-    );
+    const classIdByName = new Map<string, Id<"classes"> | "ambiguous">();
+    for (const c of classes) {
+      const key = c.name.trim();
+      classIdByName.set(key, classIdByName.has(key) ? "ambiguous" : c._id);
+    }
 
     const results: Array<{
       row: number;
@@ -808,11 +820,16 @@ export const bulkImport = mutation({
       let classId: Id<"classes"> | undefined;
       const className = raw.className?.trim();
       if (className !== undefined && className.length > 0) {
-        classId = classIdByName.get(className);
-        if (classId === undefined) {
+        const match = classIdByName.get(className);
+        if (match === undefined) {
           results.push({ row, ok: false, error: "class_not_found" });
           continue;
         }
+        if (match === "ambiguous") {
+          results.push({ row, ok: false, error: "class_ambiguous" });
+          continue;
+        }
+        classId = match;
       }
       const studentId = await ctx.db.insert("students", {
         ...normalized.value,

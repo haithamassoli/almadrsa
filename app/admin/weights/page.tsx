@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { Scale } from "lucide-react";
@@ -161,12 +161,9 @@ function WeightsRow({ row }: { row: WeightsRowData }) {
 
 export default function WeightsPage() {
   const grades = useQuery(api.academics.listGrades);
-  const [gradeId, setGradeId] = useState<Id<"grades"> | null>(null);
-  useEffect(() => {
-    if (gradeId === null && grades && grades.length > 0) {
-      setGradeId(grades[0]._id);
-    }
-  }, [grades, gradeId]);
+  const [pickedGradeId, setGradeId] = useState<Id<"grades"> | null>(null);
+  // Default to the first grade once loaded; derived, not synced via effect.
+  const gradeId = pickedGradeId ?? grades?.[0]?._id ?? null;
 
   const rows = useQuery(
     api.academics.listWeightsForGrade,

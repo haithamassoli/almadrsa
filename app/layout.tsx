@@ -40,13 +40,8 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col">
-        {/* Follow system dark mode; runs before paint to avoid a flash.
-            A stored override ("theme" in localStorage) wins if set. */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var s=localStorage.getItem("theme");var d=s?s==="dark":matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.classList.toggle("dark",d);}catch(e){}})()`,
-          }}
-        />
+        {/* Dark mode via next-themes (attribute="class"); it injects its own
+            pre-paint no-flash script. */}
         <Providers initialToken={initialToken}>{children}</Providers>
       </body>
     </html>

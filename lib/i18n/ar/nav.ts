@@ -2,6 +2,7 @@ export const nav = {
   // Shell chrome
   openMenu: "فتح القائمة",
   menu: "القائمة",
+  toggleTheme: "تبديل المظهر (فاتح/داكن)",
   // Admin navigation
   dashboard: "لوحة التحكم",
   structure: "الهيكل الأكاديمي",

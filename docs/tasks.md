@@ -16,7 +16,7 @@ Ships: empty app, deployed, with the conventions every later milestone inherits.
 ### M1 — Auth & access control
 Ships: staff log in with email/password, a student/parent logs in with a code; every server function has role guards to build on.
 
-- [x] Convex Auth email+password for staff; `role: admin | teacher`
+- [x] Better Auth email+password for staff; `role: admin | teacher` (local-install; supersedes the PRD's "Convex Auth")
 - [x] Server auth helpers (`requireAdmin`, `requireTeacher`, `requireStudentAccount`) — mandatory in every function from here on
 - [x] Access codes: ≥128-bit crypto-random, hash-only storage, active/revoked status
 - [x] Code login flow; admin/teacher regenerate + revoke instantly

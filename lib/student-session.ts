@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 // Student/parent session tokens live in localStorage (the portal is fully
 // client-rendered; every Convex query re-validates the token server-side).
@@ -25,11 +25,13 @@ export function setSession(tokens: {
   if (tokens.deviceToken) {
     window.localStorage.setItem(DEVICE_KEY, tokens.deviceToken);
   }
+  emit();
 }
 
 export function clearSession(): void {
   window.localStorage.removeItem(SESSION_KEY);
   // Keep the device token: "remember this device" survives logout.
+  emit();
 }
 
 export type StudentLoginResponse = {
@@ -55,17 +57,40 @@ export async function studentFetch(
   return (await response.json()) as StudentLoginResponse;
 }
 
-// `ready` flips after mount so SSR markup never depends on localStorage.
+// ——— Reactive subscription for the portal shell ———
+// The browser `storage` event only fires across tabs; `emit` covers same-tab
+// setSession/clearSession so subscribers react without a remount.
+const listeners = new Set<() => void>();
+function emit(): void {
+  for (const listener of listeners) listener();
+}
+function subscribe(callback: () => void): () => void {
+  listeners.add(callback);
+  window.addEventListener("storage", callback);
+  return () => {
+    listeners.delete(callback);
+    window.removeEventListener("storage", callback);
+  };
+}
+
+/**
+ * Reactive session token. `ready` is false during SSR and the hydration pass
+ * (localStorage isn't readable yet) and flips true once on the client, so the
+ * portal never redirects before it has actually checked for a token.
+ */
 export function useStudentSession(): {
   sessionToken: string | null;
   ready: boolean;
 } {
-  const [state, setState] = useState<{
-    sessionToken: string | null;
-    ready: boolean;
-  }>({ sessionToken: null, ready: false });
-  useEffect(() => {
-    setState({ sessionToken: getSessionToken(), ready: true });
-  }, []);
-  return state;
+  const sessionToken = useSyncExternalStore(
+    subscribe,
+    getSessionToken,
+    () => null,
+  );
+  const ready = useSyncExternalStore(
+    subscribe,
+    () => true,
+    () => false,
+  );
+  return { sessionToken, ready };
 }

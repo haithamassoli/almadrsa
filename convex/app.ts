@@ -11,11 +11,14 @@ export const health = query({
     hasActiveTerm: v.boolean(),
   }),
   handler: async (ctx) => {
-    const anyTerm = await ctx.db.query("terms").first();
+    const activeTerm = await ctx.db
+      .query("terms")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .first();
     return {
       ok: true,
       now: Date.now(),
-      hasActiveTerm: anyTerm?.active === true,
+      hasActiveTerm: activeTerm !== null,
     };
   },
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { Plus, UserCheck } from "lucide-react";
 import { toast } from "sonner";
@@ -48,12 +48,9 @@ export function AssignmentsTab() {
   const staff = useQuery(api.staff.listStaff);
   const teachers = staff?.filter((s) => s.role === "teacher" && !s.banned);
 
-  const [classId, setClassId] = useState<Id<"classes"> | null>(null);
-  useEffect(() => {
-    if (classId === null && classes && classes.length > 0) {
-      setClassId(classes[0]._id);
-    }
-  }, [classes, classId]);
+  const [pickedClassId, setClassId] = useState<Id<"classes"> | null>(null);
+  // Default to the first class once loaded; derived, not synced via effect.
+  const classId = pickedClassId ?? classes?.[0]?._id ?? null;
   const selectedClass = classes?.find((c) => c._id === classId);
 
   const assignments = useQuery(

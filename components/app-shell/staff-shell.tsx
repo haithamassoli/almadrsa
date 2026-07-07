@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { AppWordmark } from "@/components/app-shell/app-wordmark";
+import { ThemeToggle } from "@/components/app-shell/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -140,6 +141,7 @@ export function StaffShell({
             {user.role === "admin" ? t("auth.roleAdmin") : t("auth.roleTeacher")}
           </Badge>
         </div>
+        <ThemeToggle />
         <Button
           variant="ghost"
           size="icon"

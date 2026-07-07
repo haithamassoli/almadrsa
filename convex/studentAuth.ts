@@ -183,6 +183,21 @@ export const completeLogin = internalMutation({
     const student = await ctx.db.get("students", accessCode.studentId);
     if (!student || student.status !== "active") return false;
 
+    // Opportunistically prune this code's expired sessions so they never
+    // accumulate unbounded (which would eventually make the revoke-time purge
+    // exceed the per-mutation write limit). Bounded scan, self-limiting.
+    const stale = await ctx.db
+      .query("studentSessions")
+      .withIndex("by_accessCodeId", (q) =>
+        q.eq("accessCodeId", accessCode._id),
+      )
+      .take(50);
+    for (const session of stale) {
+      if (session.expiresAt <= now) {
+        await ctx.db.delete("studentSessions", session._id);
+      }
+    }
+
     await ctx.db.insert("studentSessions", {
       accessCodeId: accessCode._id,
       studentId: accessCode.studentId,
@@ -248,6 +263,26 @@ export const recordLoginFailure = internalMutation({
  * First-time PIN setup: only allowed while the code has no PIN yet
  * (staff regenerate the code to reset a forgotten PIN).
  */
+/**
+ * Cheap pre-check so the HTTP action can reject before the deliberately slow
+ * PBKDF2: an unauthenticated caller must not be able to make us hash on demand.
+ * The setPin mutation re-checks these same conditions (TOCTOU-safe).
+ */
+export const checkSetPinEligibility = internalQuery({
+  args: { sessionTokenHash: v.string() },
+  returns: v.union(
+    v.literal("ok"),
+    v.literal("invalid_session"),
+    v.literal("already_set"),
+  ),
+  handler: async (ctx, args) => {
+    const resolved = await resolveSessionByHash(ctx, args.sessionTokenHash);
+    if (!resolved) return "invalid_session";
+    if (resolved.accessCode.pinHash !== undefined) return "already_set";
+    return "ok";
+  },
+});
+
 export const setPin = internalMutation({
   args: {
     sessionTokenHash: v.string(),

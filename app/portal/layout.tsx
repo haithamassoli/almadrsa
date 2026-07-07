@@ -7,6 +7,7 @@ import { GraduationCap, LogOut } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { ThemeToggle } from "@/components/app-shell/theme-toggle";
 import { t } from "@/lib/i18n";
 import {
   clearSession,
@@ -66,6 +67,7 @@ export default function PortalLayout({
             {me.student.firstName} {me.student.lastName}
           </span>
         </div>
+        <ThemeToggle />
         <Button
           variant="ghost"
           size="sm"

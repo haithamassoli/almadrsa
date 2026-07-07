@@ -6,7 +6,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { requireStaff, requireTeacher, type StaffUser } from "./auth";
+import { requireStaff, type StaffUser } from "./auth";
 import { logAudit } from "./lib/audit";
 import { generateAccessCode, normalizeCode, sha256Hex } from "./lib/crypto";
 
@@ -218,7 +218,8 @@ export const listClassCodeStatus = query({
     }),
   ),
   handler: async (ctx, args) => {
-    await requireTeacher(ctx);
+    // Per-class scope: a teacher only sees rosters for classes they teach.
+    await requireClassCodeManager(ctx, args.classId);
     const enrollments = await ctx.db
       .query("enrollments")
       .withIndex("by_classId_and_active", (q) =>
@@ -340,7 +341,8 @@ export const codeStatus = query({
     lastLoginAt: v.optional(v.number()),
   }),
   handler: async (ctx, args) => {
-    await requireStaff(ctx);
+    // Per-student scope: matches issueCode/revokeCode, not blanket staff read.
+    await requireCodeManager(ctx, args.studentId);
     const active = await ctx.db
       .query("accessCodes")
       .withIndex("by_studentId_and_status", (q) =>

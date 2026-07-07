@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -41,27 +41,53 @@ export function StudentDialog({
   student: StudentRow | null;
   classes: ClassOption[] | undefined;
 }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {student === null
+              ? t("students.addStudent")
+              : t("students.editStudent")}
+          </DialogTitle>
+        </DialogHeader>
+        {/* Keyed remount replaces re-seeding form state via an effect: each
+            open (and each different student) starts from fresh initial state. */}
+        {open ? (
+          <StudentForm
+            key={student?._id ?? "new"}
+            student={student}
+            classes={classes}
+            onOpenChange={onOpenChange}
+          />
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function StudentForm({
+  student,
+  classes,
+  onOpenChange,
+}: {
+  student: StudentRow | null;
+  classes: ClassOption[] | undefined;
+  onOpenChange: (open: boolean) => void;
+}) {
   const createStudent = useMutation(api.students.createStudent);
   const updateStudent = useMutation(api.students.updateStudent);
 
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [guardianName, setGuardianName] = useState("");
-  const [guardianPhone, setGuardianPhone] = useState("");
-  const [classValue, setClassValue] = useState<string>(NO_CLASS);
+  const [firstName, setFirstName] = useState(student?.firstName ?? "");
+  const [lastName, setLastName] = useState(student?.lastName ?? "");
+  const [guardianName, setGuardianName] = useState(student?.guardianName ?? "");
+  const [guardianPhone, setGuardianPhone] = useState(
+    student?.guardianPhone ?? "",
+  );
+  const [classValue, setClassValue] = useState<string>(
+    student?.classId ?? NO_CLASS,
+  );
   const [pending, setPending] = useState(false);
-
-  // Re-seed the form each time the dialog opens (for a different student or
-  // a fresh create).
-  useEffect(() => {
-    if (!open) return;
-    setFirstName(student?.firstName ?? "");
-    setLastName(student?.lastName ?? "");
-    setGuardianName(student?.guardianName ?? "");
-    setGuardianPhone(student?.guardianPhone ?? "");
-    setClassValue(student?.classId ?? NO_CLASS);
-    setPending(false);
-  }, [open, student]);
 
   const classItems = useMemo(
     () => [
@@ -107,103 +133,88 @@ export function StudentDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            {student === null
-              ? t("students.addStudent")
-              : t("students.editStudent")}
-          </DialogTitle>
-        </DialogHeader>
-        <form onSubmit={onSubmit} className="flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="student-first-name">
-                {t("students.firstName")}
-              </Label>
-              <Input
-                id="student-first-name"
-                required
-                maxLength={100}
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="student-last-name">
-                {t("students.lastName")}
-              </Label>
-              <Input
-                id="student-last-name"
-                required
-                maxLength={100}
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="student-guardian-name">
-              {t("students.guardianName")}
-            </Label>
-            <Input
-              id="student-guardian-name"
-              maxLength={100}
-              value={guardianName}
-              onChange={(e) => setGuardianName(e.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="student-guardian-phone">
-              {t("students.guardianPhone")}
-            </Label>
-            <Input
-              id="student-guardian-phone"
-              dir="ltr"
-              inputMode="tel"
-              maxLength={20}
-              value={guardianPhone}
-              onChange={(e) => setGuardianPhone(e.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label id="student-class-label">{t("students.class")}</Label>
-            <Select
-              items={classItems}
-              value={classValue}
-              onValueChange={(value) => setClassValue(value as string)}
-            >
-              <SelectTrigger
-                aria-labelledby="student-class-label"
-                className="w-full"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {classItems.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter className="mt-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
-              {t("common.cancel")}
-            </Button>
-            <Button type="submit" disabled={pending}>
-              {pending ? <Spinner /> : null}
-              {t("common.save")}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="student-first-name">{t("students.firstName")}</Label>
+          <Input
+            id="student-first-name"
+            required
+            maxLength={100}
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="student-last-name">{t("students.lastName")}</Label>
+          <Input
+            id="student-last-name"
+            required
+            maxLength={100}
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="student-guardian-name">
+          {t("students.guardianName")}
+        </Label>
+        <Input
+          id="student-guardian-name"
+          maxLength={100}
+          value={guardianName}
+          onChange={(e) => setGuardianName(e.target.value)}
+        />
+      </div>
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="student-guardian-phone">
+          {t("students.guardianPhone")}
+        </Label>
+        <Input
+          id="student-guardian-phone"
+          dir="ltr"
+          inputMode="tel"
+          maxLength={20}
+          value={guardianPhone}
+          onChange={(e) => setGuardianPhone(e.target.value)}
+        />
+      </div>
+      <div className="flex flex-col gap-2">
+        <Label id="student-class-label">{t("students.class")}</Label>
+        <Select
+          items={classItems}
+          value={classValue}
+          onValueChange={(value) => setClassValue(value as string)}
+        >
+          <SelectTrigger
+            aria-labelledby="student-class-label"
+            className="w-full"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {classItems.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <DialogFooter className="mt-2">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => onOpenChange(false)}
+        >
+          {t("common.cancel")}
+        </Button>
+        <Button type="submit" disabled={pending}>
+          {pending ? <Spinner /> : null}
+          {t("common.save")}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }

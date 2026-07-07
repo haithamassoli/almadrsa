@@ -626,7 +626,7 @@ export const setWeights = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
     // Each part must be a non-negative integer (Number.isInteger also
     // rejects NaN / ±Infinity) and the three must sum to exactly 100.
     const parts = [args.examsPct, args.homeworkPct, args.participationPct];
@@ -646,20 +646,36 @@ export const setWeights = mutation({
       .query("gradeWeights")
       .withIndex("by_subjectId", (q) => q.eq("subjectId", args.subjectId))
       .first();
+    const next = {
+      examsPct: args.examsPct,
+      homeworkPct: args.homeworkPct,
+      participationPct: args.participationPct,
+    };
+    const before = existing
+      ? {
+          examsPct: existing.examsPct,
+          homeworkPct: existing.homeworkPct,
+          participationPct: existing.participationPct,
+        }
+      : null;
     if (existing) {
-      await ctx.db.patch("gradeWeights", existing._id, {
-        examsPct: args.examsPct,
-        homeworkPct: args.homeworkPct,
-        participationPct: args.participationPct,
-      });
+      await ctx.db.patch("gradeWeights", existing._id, next);
     } else {
       await ctx.db.insert("gradeWeights", {
         subjectId: args.subjectId,
-        examsPct: args.examsPct,
-        homeworkPct: args.homeworkPct,
-        participationPct: args.participationPct,
+        ...next,
       });
     }
+    // PRD: grade/weight changes are audited (they redefine every student's
+    // computed subject grade).
+    await logAudit(ctx, {
+      actorType: "staff",
+      actorId: admin.id,
+      action: "weights.set",
+      targetType: "subject",
+      targetId: args.subjectId,
+      meta: { before, after: next },
+    });
     return null;
   },
 });

@@ -10,7 +10,6 @@
 
 import type * as academics from "../academics.js";
 import type * as app from "../app.js";
-import type * as assignments from "../assignments.js";
 import type * as auth from "../auth.js";
 import type * as codes from "../codes.js";
 import type * as http from "../http.js";
@@ -31,7 +30,6 @@ import type {
 declare const fullApi: ApiFromModules<{
   academics: typeof academics;
   app: typeof app;
-  assignments: typeof assignments;
   auth: typeof auth;
   codes: typeof codes;
   http: typeof http;

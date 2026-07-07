@@ -198,6 +198,12 @@ http.route({
   path: "/student/set-pin",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
+    // Rate-limit before any work: hashPin is deliberately slow (120k PBKDF2
+    // iterations), so an unmetered set-pin is a CPU-exhaustion primitive.
+    const ip = clientIp(request);
+    const perIp = await rateLimiter.limit(ctx, "codeLoginPerIp", { key: ip });
+    if (!perIp.ok) return json(429, { ok: false, error: "rate_limited" });
+
     const body = await readJsonBody(request);
     const sessionToken = body?.sessionToken;
     const pin = body?.pin;
@@ -211,6 +217,20 @@ http.route({
       return json(400, { ok: false, error: "bad_request" });
     }
     const sessionTokenHash = await sha256Hex(sessionToken);
+
+    // Validate the session cheaply BEFORE the expensive hash, so garbage
+    // tokens never cost us a PBKDF2 run. setPin re-checks (TOCTOU-safe).
+    const eligibility = await ctx.runQuery(
+      internal.studentAuth.checkSetPinEligibility,
+      { sessionTokenHash },
+    );
+    if (eligibility === "invalid_session") {
+      return json(401, { ok: false, error: "invalid_session" });
+    }
+    if (eligibility === "already_set") {
+      return json(409, { ok: false, error: "pin_already_set" });
+    }
+
     const pinSalt = randomSaltHex();
     const pinHash = await hashPin(pin, pinSalt);
     const result = await ctx.runMutation(internal.studentAuth.setPin, {
