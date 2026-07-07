@@ -6,6 +6,7 @@ import { requireStudentAccount } from "./studentAuth";
 import { loadQuestionDocs } from "./exams";
 import { logAudit } from "./lib/audit";
 import { gradeAnswers } from "./lib/grading";
+import { notifyStudents } from "./lib/notify";
 import { attemptStatus, questionType } from "./lib/validators";
 
 /**
@@ -386,6 +387,16 @@ export const submit = mutation({
     if (attempt.expireFnId !== undefined) {
       await ctx.scheduler.cancel(attempt.expireFnId);
     }
+    // M5: the auto-graded result is final at submit — notify the student.
+    if (exam) {
+      await notifyStudents(ctx, [studentId], {
+        type: "result",
+        title: `ظهرت نتيجتك: ${exam.title}`,
+        body: `${autoScore}/${attempt.maxScore}`,
+        refType: "exam",
+        refId: attempt.examId,
+      });
+    }
     await logAudit(ctx, {
       actorType: "student",
       actorId: accessCodeId,
@@ -425,6 +436,17 @@ export const expire = internalMutation({
       autoScore,
       expireFnId: undefined,
     });
+    // M5: expiry finalizes the auto-graded result too — same notification as
+    // a manual submit, else mid-window timeouts never surface a result.
+    if (exam) {
+      await notifyStudents(ctx, [attempt.studentId], {
+        type: "result",
+        title: `ظهرت نتيجتك: ${exam.title}`,
+        body: `${autoScore}/${attempt.maxScore}`,
+        refType: "exam",
+        refId: attempt.examId,
+      });
+    }
     return null;
   },
 });

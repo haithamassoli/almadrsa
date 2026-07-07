@@ -57,13 +57,13 @@ Ships: full exam cycle — build, schedule, take on a phone, instant results.
 ### M5 — Portal, announcements, notification center
 Ships: parents stop asking — results, attendance, notes, announcements, all live.
 
-- [ ] Portal home: today's lessons, recent results, attendance summary
-- [ ] Results view per exam with class-average comparison
-- [ ] Attendance history view
-- [ ] Teacher notes (text) on a student + portal display
-- [ ] Announcements: school-wide (admin) + class scope (teacher), board UI
-- [ ] In-app notification center: list, unread badge, mark read
-- [ ] Wire triggers: new exam, results published, absence, new note, new announcement
+- [x] Portal home: today's lessons, recent results, attendance summary
+- [x] Results view per exam with class-average comparison
+- [x] Attendance history view
+- [x] Teacher notes (text) on a student + portal display
+- [x] Announcements: school-wide (admin) + class scope (teacher), board UI
+- [x] In-app notification center: list, unread badge, mark read
+- [x] Wire triggers: new exam, results published, absence, new note, new announcement
 
 ### M6 — Gamification v1
 Ships: points and streaks visible in the portal.

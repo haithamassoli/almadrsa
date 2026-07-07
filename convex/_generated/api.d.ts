@@ -9,6 +9,7 @@
  */
 
 import type * as academics from "../academics.js";
+import type * as announcements from "../announcements.js";
 import type * as app from "../app.js";
 import type * as attempts from "../attempts.js";
 import type * as attendance from "../attendance.js";
@@ -21,7 +22,11 @@ import type * as lib_audit from "../lib/audit.js";
 import type * as lib_crypto from "../lib/crypto.js";
 import type * as lib_dates from "../lib/dates.js";
 import type * as lib_grading from "../lib/grading.js";
+import type * as lib_notify from "../lib/notify.js";
 import type * as lib_validators from "../lib/validators.js";
+import type * as notes from "../notes.js";
+import type * as notifications from "../notifications.js";
+import type * as portal from "../portal.js";
 import type * as questions from "../questions.js";
 import type * as seed from "../seed.js";
 import type * as staff from "../staff.js";
@@ -37,6 +42,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   academics: typeof academics;
+  announcements: typeof announcements;
   app: typeof app;
   attempts: typeof attempts;
   attendance: typeof attendance;
@@ -49,7 +55,11 @@ declare const fullApi: ApiFromModules<{
   "lib/crypto": typeof lib_crypto;
   "lib/dates": typeof lib_dates;
   "lib/grading": typeof lib_grading;
+  "lib/notify": typeof lib_notify;
   "lib/validators": typeof lib_validators;
+  notes: typeof notes;
+  notifications: typeof notifications;
+  portal: typeof portal;
   questions: typeof questions;
   seed: typeof seed;
   staff: typeof staff;

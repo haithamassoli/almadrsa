@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Component, useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
@@ -142,7 +143,11 @@ function RefusedState({ code }: { code: string }) {
         <EmptyDescription>{errorText(code)}</EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <Button variant="outline" render={<Link href="/portal/exams" />}>
+        <Button
+          variant="outline"
+          nativeButton={false}
+          render={<Link href="/portal/exams" />}
+        >
           <ArrowRight />
           {t("examsPortal.backToExams")}
         </Button>
@@ -151,8 +156,116 @@ function RefusedState({ code }: { code: string }) {
   );
 }
 
+/**
+ * Swallows render/query errors of its subtree (e.g. examClassStats throwing
+ * not_found in a race) — the comparison simply disappears, the result stays.
+ */
+class SilentErrorBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
+/** One labelled horizontal bar of the you-vs-class comparison. */
+function ComparisonBar({
+  label,
+  value,
+  max,
+  fillClassName,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  fillClassName: string;
+}) {
+  const percent = max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>{label}</span>
+        <span className="font-medium tabular-nums">{formatNumber(value)}</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn("h-full rounded-full", fillClassName)}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** "مقارنة بالفصل": my score vs class average/max, only after submission. */
+function ClassComparison({
+  sessionToken,
+  examId,
+}: {
+  sessionToken: string;
+  examId: Id<"exams">;
+}) {
+  const stats = useQuery(api.portal.examClassStats, { sessionToken, examId });
+  if (stats === undefined) return null;
+  return (
+    <div className="flex w-full flex-col gap-3 border-t pt-4 text-start">
+      <span className="text-sm font-bold">{t("portal.compareTitle")}</span>
+      <div className="flex flex-col gap-1.5 text-sm">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground">{t("portal.compareYou")}</span>
+          <span className="font-bold tabular-nums">
+            {t("portal.scoreFraction", {
+              score: formatNumber(stats.myScore),
+              total: formatNumber(stats.maxScore),
+            })}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground">{t("portal.compareAvg")}</span>
+          <span className="font-bold tabular-nums">
+            {formatNumber(stats.classAvg)}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground">{t("portal.compareMax")}</span>
+          <span className="font-bold tabular-nums">
+            {formatNumber(stats.classMax)}
+          </span>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2">
+        <ComparisonBar
+          label={t("portal.compareYou")}
+          value={stats.myScore}
+          max={stats.maxScore}
+          fillClassName="bg-primary"
+        />
+        <ComparisonBar
+          label={t("portal.compareAvg")}
+          value={stats.classAvg}
+          max={stats.maxScore}
+          fillClassName="bg-muted-foreground/30"
+        />
+      </div>
+    </div>
+  );
+}
+
 /** Submitted attempt: the score card (no correct answers are ever shown). */
-function ResultScreen({ attempt }: { attempt: AttemptView }) {
+function ResultScreen({
+  attempt,
+  sessionToken,
+  examId,
+}: {
+  attempt: AttemptView;
+  sessionToken: string;
+  examId: Id<"exams">;
+}) {
   const effective = attempt.overrideScore ?? attempt.autoScore ?? 0;
   return (
     <div className="flex flex-1 items-center justify-center py-8">
@@ -181,9 +294,13 @@ function ResultScreen({ attempt }: { attempt: AttemptView }) {
             </span>
           ) : null}
         </div>
+        <SilentErrorBoundary>
+          <ClassComparison sessionToken={sessionToken} examId={examId} />
+        </SilentErrorBoundary>
         <Button
           variant="outline"
           className="w-full"
+          nativeButton={false}
           render={<Link href="/portal/exams" />}
         >
           <ArrowRight />
@@ -732,7 +849,15 @@ function TakeExamInner({
     return <TakeSkeleton />;
   }
 
-  if (attempt.status === "submitted") return <ResultScreen attempt={attempt} />;
+  if (attempt.status === "submitted") {
+    return (
+      <ResultScreen
+        attempt={attempt}
+        sessionToken={sessionToken}
+        examId={examId}
+      />
+    );
+  }
 
   return (
     <TakingScreen

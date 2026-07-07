@@ -4,7 +4,15 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
-import { ClipboardList, GraduationCap, Home, LogOut } from "lucide-react";
+import {
+  Bell,
+  CalendarCheck,
+  ClipboardList,
+  GraduationCap,
+  Home,
+  LogOut,
+  Megaphone,
+} from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -25,10 +33,26 @@ const PORTAL_NAV: {
 }[] = [
   { href: "/portal", labelKey: "portal.navHome", icon: Home },
   { href: "/portal/exams", labelKey: "portal.navExams", icon: ClipboardList },
+  {
+    href: "/portal/attendance",
+    labelKey: "portal.navAttendance",
+    icon: CalendarCheck,
+  },
+  {
+    href: "/portal/announcements",
+    labelKey: "portal.navAnnouncements",
+    icon: Megaphone,
+  },
+  {
+    href: "/portal/notifications",
+    labelKey: "portal.navNotifications",
+    icon: Bell,
+  },
 ];
 
-function PortalNav() {
+function PortalNav({ sessionToken }: { sessionToken: string }) {
   const pathname = usePathname();
+  const unread = useQuery(api.notifications.unreadCount, { sessionToken });
   return (
     <nav className="sticky bottom-0 z-10 border-t bg-background/95 backdrop-blur">
       <div className="mx-auto flex max-w-2xl items-stretch">
@@ -37,6 +61,8 @@ function PortalNav() {
             item.href === "/portal"
               ? pathname === item.href
               : pathname.startsWith(item.href);
+          const showBadge =
+            item.href === "/portal/notifications" && (unread ?? 0) > 0;
           return (
             <Link
               key={item.href}
@@ -48,7 +74,19 @@ function PortalNav() {
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              <item.icon className="size-5" aria-hidden />
+              <span className="relative">
+                <item.icon className="size-5" aria-hidden />
+                {showBadge ? (
+                  <span
+                    className="absolute -top-1 -end-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold leading-none text-white"
+                    aria-label={t("portal.unreadCount", {
+                      count: unread ?? 0,
+                    })}
+                  >
+                    {(unread ?? 0) > 99 ? "99+" : unread}
+                  </span>
+                ) : null}
+              </span>
               {t(item.labelKey)}
             </Link>
           );
@@ -124,7 +162,7 @@ export default function PortalLayout({
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col p-4">
         {children}
       </main>
-      <PortalNav />
+      <PortalNav sessionToken={sessionToken} />
     </div>
   );
 }

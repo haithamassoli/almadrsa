@@ -12,9 +12,11 @@ import {
   KeyRound,
   LayoutDashboard,
   LogOut,
+  Megaphone,
   Menu,
   Network,
   Scale,
+  StickyNote,
   UserCog,
   Users,
 } from "lucide-react";
@@ -52,6 +54,11 @@ const NAV: Record<Role, NavItem[]> = {
     { href: "/admin/codes", labelKey: "nav.codes", icon: KeyRound },
     { href: "/admin/staff", labelKey: "nav.staff", icon: UserCog },
     { href: "/admin/weights", labelKey: "nav.weights", icon: Scale },
+    {
+      href: "/admin/announcements",
+      labelKey: "nav.announcements",
+      icon: Megaphone,
+    },
   ],
   teacher: [
     { href: "/teacher", labelKey: "nav.teacherHome", icon: LayoutDashboard },
@@ -66,6 +73,12 @@ const NAV: Record<Role, NavItem[]> = {
       icon: FileQuestion,
     },
     { href: "/teacher/exams", labelKey: "nav.exams", icon: ClipboardList },
+    { href: "/teacher/notes", labelKey: "nav.notes", icon: StickyNote },
+    {
+      href: "/teacher/announcements",
+      labelKey: "nav.announcements",
+      icon: Megaphone,
+    },
   ],
 };
 

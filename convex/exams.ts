@@ -11,6 +11,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { requireTeacher, type StaffUser } from "./auth";
 import { logAudit } from "./lib/audit";
 import { gradeAnswers } from "./lib/grading";
+import { formatDateAr, notifyClass, notifyStudents } from "./lib/notify";
 import { difficulty, examStatus, questionType } from "./lib/validators";
 
 /**
@@ -200,6 +201,14 @@ async function closeSweep(
     if (attempt.expireFnId !== undefined) {
       await ctx.scheduler.cancel(attempt.expireFnId);
     }
+    // M5: the sweep just made this attempt's result final — notify.
+    await notifyStudents(ctx, [attempt.studentId], {
+      type: "result",
+      title: `ظهرت نتيجتك: ${exam.title}`,
+      body: `${autoScore}/${attempt.maxScore}`,
+      refType: "exam",
+      refId: exam._id,
+    });
   }
 }
 
@@ -591,6 +600,20 @@ export const publish = mutation({
       status: "published",
       closeFnId,
     });
+    // M5: tell the class a new exam is available. Dates only (Arabic month
+    // names, Latin digits) — exact local times render client-side.
+    const startDay = formatDateAr(exam.windowStart);
+    const endDay = formatDateAr(exam.windowEnd);
+    await notifyClass(ctx, exam.classId, {
+      type: "exam_published",
+      title: `اختبار جديد: ${exam.title}`,
+      body:
+        startDay === endDay
+          ? `متاح يوم ${startDay}`
+          : `متاح من ${startDay} حتى ${endDay}`,
+      refType: "exam",
+      refId: args.examId,
+    });
     await logAudit(ctx, {
       actorType: "staff",
       actorId: staff.id,
@@ -658,7 +681,7 @@ export const overrideScore = mutation({
     const staff = await requireTeacher(ctx);
     const attempt = await ctx.db.get("examAttempts", args.attemptId);
     if (!attempt) throw new ConvexError("not_found");
-    await requireExamOwner(ctx, staff, attempt.examId);
+    const exam = await requireExamOwner(ctx, staff, attempt.examId);
     if (attempt.status !== "submitted") {
       throw new ConvexError("not_submitted");
     }
@@ -669,6 +692,14 @@ export const overrideScore = mutation({
       overrideScore: args.score,
       overrideBy: staff.id,
       overrideAt: Date.now(),
+    });
+    // M5: the student's effective score just changed — notify them.
+    await notifyStudents(ctx, [attempt.studentId], {
+      type: "result",
+      title: `تحدّثت درجتك: ${exam.title}`,
+      body: `${args.score}/${attempt.maxScore}`,
+      refType: "exam",
+      refId: attempt.examId,
     });
     await logAudit(ctx, {
       actorType: "staff",

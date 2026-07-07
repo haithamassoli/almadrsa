@@ -2,12 +2,14 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
   actorType,
+  announcementScope,
   attemptStatus,
   attendanceStatus,
   codeStatus,
   difficulty,
   examStatus,
   lessonSource,
+  notificationType,
   questionType,
   studentStatus,
 } from "./lib/validators";
@@ -197,6 +199,38 @@ export default defineSchema({
   })
     .index("by_deviceTokenHash", ["deviceTokenHash"])
     .index("by_accessCodeId", ["accessCodeId"]),
+
+  // ——— M5: teacher notes, announcements & in-app notifications ———
+  notes: defineTable({
+    studentId: v.id("students"),
+    teacherId: v.string(), // Better Auth user id (author)
+    text: v.string(),
+  })
+    .index("by_studentId", ["studentId"])
+    .index("by_teacherId", ["teacherId"]),
+
+  announcements: defineTable({
+    scope: announcementScope,
+    classId: v.optional(v.id("classes")), // set iff scope === "class"
+    title: v.string(),
+    body: v.string(),
+    authorId: v.string(), // Better Auth user id · "system" for seeded rows
+    authorName: v.string(), // denormalized at write; later renames don't backfill
+  })
+    .index("by_scope", ["scope"])
+    .index("by_classId", ["classId"]),
+
+  notifications: defineTable({
+    studentId: v.id("students"),
+    type: notificationType,
+    title: v.string(),
+    body: v.string(),
+    read: v.boolean(),
+    refType: v.optional(v.string()), // "exam" · "note" · "announcement" · "attendance"
+    refId: v.optional(v.string()),
+  })
+    .index("by_studentId", ["studentId"])
+    .index("by_studentId_and_read", ["studentId", "read"]),
 
   // ——— Cross-cutting ———
   auditLog: defineTable({

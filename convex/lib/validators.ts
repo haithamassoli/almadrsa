@@ -41,6 +41,19 @@ export const attemptStatus = v.union(
   v.literal("submitted"),
 );
 
+// M5 — portal, notes, announcements & notifications
+export const notificationType = v.union(
+  v.literal("exam_published"),
+  v.literal("result"),
+  v.literal("absence"),
+  v.literal("note"),
+  v.literal("announcement"),
+);
+export const announcementScope = v.union(
+  v.literal("school"),
+  v.literal("class"),
+);
+
 export type StaffRole = "admin" | "teacher";
 export type AttendanceStatus = "present" | "absent" | "late";
 export type LessonSource = "timetable" | "adhoc";
@@ -48,3 +61,10 @@ export type QuestionType = "mcq" | "truefalse";
 export type Difficulty = "easy" | "medium" | "hard";
 export type ExamStatus = "draft" | "published" | "closed";
 export type AttemptStatus = "in_progress" | "submitted";
+export type NotificationType =
+  | "exam_published"
+  | "result"
+  | "absence"
+  | "note"
+  | "announcement";
+export type AnnouncementScope = "school" | "class";

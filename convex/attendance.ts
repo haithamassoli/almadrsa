@@ -5,6 +5,7 @@ import { requireTeacher } from "./auth";
 import { getOwnedLesson } from "./lessons";
 import { assertStaffCanAccessStudent } from "./students";
 import { logAudit } from "./lib/audit";
+import { formatDateKeyAr, notifyStudents } from "./lib/notify";
 import { attendanceStatus, type AttendanceStatus } from "./lib/validators";
 
 /**
@@ -104,6 +105,7 @@ export const bulkMark = mutation({
     );
 
     const now = Date.now();
+    const newlyAbsent: Array<Id<"students">> = [];
     for (const entry of args.entries) {
       if (!enrolled.has(entry.studentId)) continue;
       const existing = await ctx.db
@@ -112,6 +114,11 @@ export const bulkMark = mutation({
           q.eq("lessonId", args.lessonId).eq("studentId", entry.studentId),
         )
         .unique();
+      // M5: notify only on a transition INTO "absent" (unmarked or another
+      // status before) — re-saving an existing absence stays silent.
+      if (entry.status === "absent" && existing?.status !== "absent") {
+        newlyAbsent.push(entry.studentId);
+      }
       if (existing) {
         await ctx.db.patch("attendance", existing._id, {
           status: entry.status,
@@ -129,6 +136,16 @@ export const bulkMark = mutation({
           updatedAt: now,
         });
       }
+    }
+
+    if (newlyAbsent.length > 0) {
+      const subject = await ctx.db.get("subjects", lesson.subjectId);
+      await notifyStudents(ctx, newlyAbsent, {
+        type: "absence",
+        title: "غياب مسجَّل",
+        body: `سُجّل غياب عن حصة ${subject?.name ?? ""} بتاريخ ${formatDateKeyAr(lesson.date)}`,
+        refType: "attendance",
+      });
     }
 
     await logAudit(ctx, {

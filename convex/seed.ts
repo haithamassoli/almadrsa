@@ -3,6 +3,7 @@ import { internalAction, internalMutation } from "./_generated/server";
 import { components } from "./_generated/api";
 import { createAuth } from "./auth";
 import { issueCodeCore } from "./codes";
+import { notifyAllActiveStudents } from "./lib/notify";
 import { staffRole } from "./lib/validators";
 
 // Bootstrap staff accounts from the CLI (never exposed publicly):
@@ -359,6 +360,49 @@ export const seedQuestions = internalMutation({
       created++;
     }
     return created;
+  },
+});
+
+// ——— M5 welcome announcement ———
+
+const WELCOME_TITLE = "أهلًا بكم في المنصة";
+const WELCOME_BODY =
+  "يسعدنا انضمامكم إلى منصة المدرسة. من هنا تتابعون جدول الحصص ونتائج " +
+  "الاختبارات وسجلّ الحضور، وتصلكم ملاحظات المعلّمين وإعلانات المدرسة " +
+  "أولًا بأول.";
+
+/**
+ * M5 demo announcement: one school-scope welcome post authored by the
+ * system, fanned out as a notification to every active student. Idempotent —
+ * skipped when a school announcement with the same title already exists.
+ * Returns whether it was created.
+ *   npx convex run seed:seedAnnouncement '{}'
+ */
+export const seedAnnouncement = internalMutation({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx) => {
+    const school = await ctx.db
+      .query("announcements")
+      .withIndex("by_scope", (q) => q.eq("scope", "school"))
+      .take(100);
+    if (school.some((announcement) => announcement.title === WELCOME_TITLE)) {
+      return false;
+    }
+    await ctx.db.insert("announcements", {
+      scope: "school",
+      title: WELCOME_TITLE,
+      body: WELCOME_BODY,
+      authorId: "system",
+      authorName: "إدارة المدرسة",
+    });
+    await notifyAllActiveStudents(ctx, {
+      type: "announcement",
+      title: WELCOME_TITLE,
+      body: WELCOME_BODY.slice(0, 100),
+      refType: "announcement",
+    });
+    return true;
   },
 });
 
