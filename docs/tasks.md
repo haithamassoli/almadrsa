@@ -94,12 +94,12 @@ Ships: every question type, essay grading with rubrics and voice feedback, shuff
 ### M9 — Homework
 Ships: assign → student submits text/photo/voice → auto-close → grade.
 
-- [ ] Homework CRUD per class with deadline
-- [ ] Submission: text + photos/files + in-browser voice recording; enforce caps (≤10 MB photo, ≤5 min audio)
-- [ ] Auto-close at deadline (scheduled function); late view is read-only
-- [ ] Deadline reminder notifications
-- [ ] Teacher grading/feedback; portal submission + grade view
-- [ ] Points on homework submission (gamification hook)
+- [x] Homework CRUD per class with deadline
+- [x] Submission: text + photos/files + in-browser voice recording; enforce caps (≤10 MB photo, ≤5 min audio)
+- [x] Auto-close at deadline (scheduled function); late view is read-only
+- [x] Deadline reminder notifications
+- [x] Teacher grading/feedback; portal submission + grade view
+- [x] Points on homework submission (gamification hook)
 
 ### M10 — Analytics & gamification full
 Ships: role-scoped dashboards and live leaderboards.

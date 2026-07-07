@@ -1,0 +1,90 @@
+// M9 teacher homework strings — owned by the teacher-homework feature.
+export const homework = {
+  // List page
+  title: "الواجبات",
+  newHomework: "واجب جديد",
+  allClasses: "كل الفصول",
+  classFilter: "تصفية حسب الفصل",
+  colTitle: "العنوان",
+  colClass: "الفصل",
+  colSubject: "المادة",
+  colDeadline: "الموعد النهائي",
+  colMarks: "الدرجة القصوى",
+  colSubmitted: "سلّموا",
+  statusOpen: "مفتوح",
+  statusClosed: "مغلق",
+  openHomework: "فتح الواجب {title}",
+  emptyTitle: "لا توجد واجبات بعد",
+  emptyBody: "أنشئ أول واجب وسيصل إشعاره لطلاب الفصل فورًا.",
+  emptyFiltered: "لا توجد واجبات لهذا الفصل.",
+
+  // Close / delete
+  closeNow: "إغلاق الآن",
+  closeConfirmTitle: "إغلاق التسليم الآن؟",
+  closeConfirmBody:
+    "سيتوقف قبول التسليمات فورًا، ولا يمكن إعادة فتح الواجب بعد إغلاقه.",
+  closedToast: "أُغلق الواجب",
+  deleteConfirmTitle: "حذف الواجب؟",
+  deleteConfirmBody:
+    "سيُحذف الواجب «{title}» نهائيًا. الواجبات التي لها تسليمات لا يمكن حذفها.",
+  deleted: "حُذف الواجب",
+
+  // Create / edit dialog
+  editHomework: "تعديل الواجب",
+  fieldClass: "الفصل",
+  fieldSubject: "المادة",
+  fieldTitle: "العنوان",
+  fieldDescription: "الوصف (اختياري)",
+  fieldDeadline: "الموعد النهائي",
+  fieldMarks: "الدرجة القصوى",
+  selectClass: "اختر الفصل",
+  selectSubject: "اختر المادة",
+  errMissingClassSubject: "اختر الفصل والمادة أولًا.",
+  errDeadlinePast: "الموعد النهائي يجب أن يكون في المستقبل.",
+  created: "أُنشئ الواجب وأُشعر طلاب الفصل",
+  updated: "تم حفظ التعديلات",
+
+  // Detail page
+  backToList: "العودة إلى الواجبات",
+  notFoundTitle: "الواجب غير موجود",
+  notFoundBody: "ربما حُذف الواجب أو لا تملك صلاحية الوصول إليه.",
+  deadlineMeta: "آخر موعد للتسليم: {time}",
+  marksMeta: "الدرجة القصوى: {n}",
+  autoCloseNote: "يُغلق التسليم تلقائيًا في {time}.",
+  submissionsTitle: "التسليمات",
+  colStudent: "الطالب",
+  colSubmittedAt: "وقت التسليم",
+  colContent: "المحتوى",
+  colGrade: "الدرجة",
+  submittedBadge: "سلّم",
+  notSubmittedBadge: "لم يسلّم",
+  contentText: "نص",
+  contentImages: "مرفقات ({n})",
+  contentAudio: "تسجيل صوتي",
+  noStudents: "لا يوجد طلاب مسجلون في هذا الفصل.",
+  gradeAction: "تصحيح",
+
+  // Grading sheet
+  gradingTitle: "تصحيح التسليم",
+  submittedAtMeta: "سلّم في {time}",
+  updatedAtMeta: "آخر تعديل: {time}",
+  studentTextLabel: "إجابة الطالب",
+  attachmentsLabel: "المرفقات",
+  attachmentAlt: "مرفق {n}",
+  openAttachment: "فتح المرفق {n} في تبويب جديد",
+  audioLabel: "التسجيل الصوتي",
+  gradedBadge: "مُصحّح",
+  gradeLabel: "الدرجة (من {max})",
+  feedbackLabel: "ملاحظات للطالب (اختياري)",
+  saveGrade: "حفظ الدرجة",
+  gradeSaved: "حُفظت الدرجة وأُشعر الطالب",
+
+  // Backend machine codes
+  errNotFound: "الواجب غير موجود أو لا تملك صلاحية الوصول إليه.",
+  errNotAssigned: "لست معيّنًا لتدريس هذه المادة في هذا الفصل.",
+  errInvalidHomework:
+    "بيانات غير صالحة — تأكد من العنوان، والدرجة القصوى (1–100)، وأن الموعد النهائي في المستقبل.",
+  errHasSubmissions: "لا يمكن حذف واجب له تسليمات — أغلقه بدلًا من ذلك.",
+  errHomeworkClosed: "هذا الواجب مغلق ولا يمكن تعديله.",
+  errInvalidGrade: "درجة غير صالحة — يجب أن تكون بين 0 والدرجة القصوى.",
+} as const;

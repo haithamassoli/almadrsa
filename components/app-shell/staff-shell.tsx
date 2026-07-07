@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import {
+  BookOpenCheck,
   CalendarDays,
   ClipboardCheck,
   ClipboardList,
@@ -79,6 +80,11 @@ const NAV: Record<Role, NavItem[]> = {
       icon: FileQuestion,
     },
     { href: "/teacher/exams", labelKey: "nav.exams", icon: ClipboardList },
+    {
+      href: "/teacher/homework",
+      labelKey: "nav.homework",
+      icon: BookOpenCheck,
+    },
     { href: "/teacher/notes", labelKey: "nav.notes", icon: StickyNote },
     {
       href: "/teacher/announcements",

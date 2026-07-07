@@ -14,8 +14,8 @@ import type { AttendanceStatus } from "./lib/validators";
  * M6 — gamification v1: points + streaks. Points are append-only pointEvents
  * rows deduped by their source row (refType, refId); the running total and
  * the streak live denormalized on one gamification doc per student.
- * Attendance/exam mutations call the exported award helpers; config is an
- * admin-editable settings row ("gamification") shallow-merged over safe
+ * Attendance/exam/homework mutations call the exported award helpers; config
+ * is an admin-editable settings row ("gamification") shallow-merged over safe
  * defaults. Domain errors use `ConvexError` codes the RTL UI maps to Arabic
  * messages:
  *   invalid_config
@@ -26,12 +26,14 @@ import type { AttendanceStatus } from "./lib/validators";
 export type GamificationConfig = {
   presentPoints: number;
   latePoints: number;
+  homeworkPoints: number; // M9 — awarded once per homework submission
   examThresholds: Array<{ minPct: number; points: number }>;
 };
 
 const DEFAULT_CONFIG: GamificationConfig = {
   presentPoints: 5,
   latePoints: 2,
+  homeworkPoints: 5,
   examThresholds: [
     { minPct: 90, points: 20 },
     { minPct: 75, points: 10 },
@@ -48,6 +50,7 @@ const thresholdValidator = v.object({
 const configValidator = v.object({
   presentPoints: v.number(),
   latePoints: v.number(),
+  homeworkPoints: v.number(),
   examThresholds: v.array(thresholdValidator),
 });
 
@@ -78,6 +81,9 @@ export async function readConfig(ctx: QueryCtx): Promise<GamificationConfig> {
   const latePoints = isPointsNumber(stored.latePoints)
     ? stored.latePoints
     : DEFAULT_CONFIG.latePoints;
+  const homeworkPoints = isPointsNumber(stored.homeworkPoints)
+    ? stored.homeworkPoints
+    : DEFAULT_CONFIG.homeworkPoints;
 
   let examThresholds: GamificationConfig["examThresholds"] = [];
   if (Array.isArray(stored.examThresholds)) {
@@ -95,7 +101,7 @@ export async function readConfig(ctx: QueryCtx): Promise<GamificationConfig> {
   }
   examThresholds.sort((a, b) => b.minPct - a.minPct);
 
-  return { presentPoints, latePoints, examThresholds };
+  return { presentPoints, latePoints, homeworkPoints, examThresholds };
 }
 
 /** Admin: the effective gamification config (stored row merged on defaults). */
@@ -109,14 +115,17 @@ export const getConfig = query({
 });
 
 /**
- * Admin: replace the gamification config. Attendance points must be 0–1000;
- * 1–5 exam thresholds, each with minPct 1–100 and points ≥ 0. Stored sorted
- * desc by minPct; audited as "settings.gamification".
+ * Admin: replace the gamification config. Attendance/homework points must be
+ * 0–1000; 1–5 exam thresholds, each with minPct 1–100 and points ≥ 0. Stored
+ * sorted desc by minPct; audited as "settings.gamification".
+ * M9: `homeworkPoints` is optional so pre-M9 callers keep working — when
+ * omitted, the currently effective value is preserved.
  */
 export const saveConfig = mutation({
   args: {
     presentPoints: v.number(),
     latePoints: v.number(),
+    homeworkPoints: v.optional(v.number()),
     examThresholds: v.array(thresholdValidator),
   },
   returns: v.null(),
@@ -125,6 +134,12 @@ export const saveConfig = mutation({
     if (
       !(args.presentPoints >= 0 && args.presentPoints <= 1000) ||
       !(args.latePoints >= 0 && args.latePoints <= 1000)
+    ) {
+      throw new ConvexError("invalid_config");
+    }
+    if (
+      args.homeworkPoints !== undefined &&
+      !(args.homeworkPoints >= 0 && args.homeworkPoints <= 1000)
     ) {
       throw new ConvexError("invalid_config");
     }
@@ -143,6 +158,8 @@ export const saveConfig = mutation({
     const value: GamificationConfig = {
       presentPoints: args.presentPoints,
       latePoints: args.latePoints,
+      homeworkPoints:
+        args.homeworkPoints ?? (await readConfig(ctx)).homeworkPoints,
       examThresholds: [...args.examThresholds].sort(
         (a, b) => b.minPct - a.minPct,
       ),
@@ -181,7 +198,7 @@ export async function awardOnce(
   ctx: MutationCtx,
   args: {
     studentId: Id<"students">;
-    kind: "attendance" | "exam";
+    kind: "attendance" | "exam" | "homework";
     points: number;
     refType: string;
     refId: string;
@@ -310,6 +327,31 @@ export async function awardForExam(
     points: matched.points,
     refType: "attempt",
     refId: args.attemptId,
+    day: args.day,
+  });
+}
+
+/**
+ * M9 homework hook: the configured flat award for turning a homework in,
+ * once per submission row — homework.submit only calls this on the FIRST
+ * submission, and awardOnce's (refType, refId) dedupe backstops that. Grades
+ * don't affect the award (submitting is the behavior being rewarded).
+ */
+export async function awardForHomework(
+  ctx: MutationCtx,
+  args: {
+    studentId: Id<"students">;
+    submissionId: Id<"homeworkSubmissions">;
+    day: string;
+  },
+): Promise<void> {
+  const config = await readConfig(ctx);
+  await awardOnce(ctx, {
+    studentId: args.studentId,
+    kind: "homework",
+    points: config.homeworkPoints,
+    refType: "submission",
+    refId: args.submissionId,
     day: args.day,
   });
 }

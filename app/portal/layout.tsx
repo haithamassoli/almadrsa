@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import {
   Bell,
+  BookOpenCheck,
   CalendarCheck,
   ClipboardList,
   Home,
@@ -33,6 +34,11 @@ const PORTAL_NAV: {
 }[] = [
   { href: "/portal", labelKey: "portal.navHome", icon: Home },
   { href: "/portal/exams", labelKey: "portal.navExams", icon: ClipboardList },
+  {
+    href: "/portal/homework",
+    labelKey: "portal.navHomework",
+    icon: BookOpenCheck,
+  },
   {
     href: "/portal/attendance",
     labelKey: "portal.navAttendance",

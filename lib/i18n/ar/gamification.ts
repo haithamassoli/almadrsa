@@ -11,6 +11,7 @@ export const gamification = {
   attendanceCardTitle: "نقاط الحضور",
   present: "حاضر",
   late: "متأخر",
+  homeworkSubmit: "تسليم واجب",
   thresholdsCardTitle: "عتبات نقاط الاختبارات",
   thresholdsHint: "أعلى عتبة مطابِقة هي التي تُحتسب.",
   minPct: "النسبة على الأقل ٪",

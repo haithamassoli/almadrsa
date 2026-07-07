@@ -4,6 +4,7 @@ import { components, internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { createAuth } from "./auth";
 import { issueCodeCore } from "./codes";
+import { createHomeworkCore } from "./homework";
 import { notifyAllActiveStudents } from "./lib/notify";
 import { staffRole } from "./lib/validators";
 
@@ -529,6 +530,78 @@ export const seedAnnouncement = internalMutation({
       title: WELCOME_TITLE,
       body: WELCOME_BODY.slice(0, 100),
       refType: "announcement",
+    });
+    return true;
+  },
+});
+
+// ——— M9 demo homework ———
+
+const DEMO_HOMEWORK_TITLE = "واجب: حفظ سورة الفاتحة";
+const DEMO_HOMEWORK_DESCRIPTION =
+  "احفظ سورة الفاتحة مع مراعاة أحكام التجويد، ثم سجّل تلاوتك صوتيًا أو " +
+  "اكتب الآيات كتابةً وأرفقها هنا قبل الموعد النهائي.";
+
+/**
+ * M9 demo homework: one OPEN homework for the demo class on the first demo
+ * subject (التربية الإسلامية), due in 3 days, out of 10 — created through
+ * createHomeworkCore, i.e. EXACTLY like homework.create: the auto-close and
+ * reminder functions are scheduled and the class notification fans out.
+ * Idempotent — skipped when the class already has a homework with the demo
+ * title. Returns whether it was created.
+ *   npx convex run seed:seedHomework '{}'
+ */
+export const seedHomework = internalMutation({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx) => {
+    // Resolve the demo grade → class → first subject exactly as seedDemo
+    // created them.
+    const gradesAtOrder = await ctx.db
+      .query("grades")
+      .withIndex("by_order", (q) => q.eq("order", DEMO_GRADE_ORDER))
+      .take(10);
+    const grade = gradesAtOrder.find((g) => g.name === DEMO_GRADE_NAME);
+    if (!grade) return false;
+    const classes = await ctx.db
+      .query("classes")
+      .withIndex("by_gradeId", (q) => q.eq("gradeId", grade._id))
+      .take(20);
+    const cls = classes.find((c) => c.name === DEMO_CLASS_NAME);
+    if (!cls) return false;
+    const gradeSubjects = await ctx.db
+      .query("subjects")
+      .withIndex("by_gradeId", (q) => q.eq("gradeId", grade._id))
+      .take(50);
+    const subject = gradeSubjects.find((s) => s.name === DEMO_SUBJECTS[0]);
+    if (!subject) return false;
+
+    // Idempotent: the demo class already has the seeded homework.
+    const existing = await ctx.db
+      .query("homework")
+      .withIndex("by_classId", (q) => q.eq("classId", cls._id))
+      .take(200);
+    if (existing.some((homework) => homework.title === DEMO_HOMEWORK_TITLE)) {
+      return false;
+    }
+
+    // The demo teacher's Better Auth user id, by email (as in seedDemo).
+    const teacher: { _id: string; userId?: string | null } | null =
+      await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [{ field: "email", value: DEMO_TEACHER_EMAIL }],
+      });
+    if (!teacher) return false;
+    const teacherId = teacher.userId ?? teacher._id;
+
+    await createHomeworkCore(ctx, {
+      teacherId,
+      classId: cls._id,
+      subjectId: subject._id,
+      title: DEMO_HOMEWORK_TITLE,
+      description: DEMO_HOMEWORK_DESCRIPTION,
+      deadline: Date.now() + 3 * 24 * 60 * 60 * 1000,
+      marks: 10,
     });
     return true;
   },

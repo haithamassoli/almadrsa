@@ -16,6 +16,8 @@ import { examsPortal } from "./examsPortal";
 import { notes } from "./notes";
 import { announce } from "./announce";
 import { gamification } from "./gamification";
+import { homework } from "./homework";
+import { homeworkPortal } from "./homeworkPortal";
 
 // One namespace file per feature area so parallel work never edits the same
 // file. All namespaces are pre-registered here — add keys in YOUR namespace
@@ -39,4 +41,6 @@ export const ar = {
   notes,
   announce,
   gamification,
+  homework,
+  homeworkPortal,
 } as const;

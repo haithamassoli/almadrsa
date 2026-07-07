@@ -8,6 +8,7 @@ import {
   codeStatus,
   difficulty,
   examStatus,
+  homeworkStatus,
   lessonSource,
   notificationType,
   questionType,
@@ -273,18 +274,22 @@ export default defineSchema({
     title: v.string(),
     body: v.string(),
     read: v.boolean(),
-    refType: v.optional(v.string()), // "exam" · "note" · "announcement" · "attendance"
+    refType: v.optional(v.string()), // "exam" · "note" · "announcement" · "attendance" · "homework"
     refId: v.optional(v.string()),
   })
     .index("by_studentId", ["studentId"])
     .index("by_studentId_and_read", ["studentId", "read"]),
 
-  // ——— M6: gamification v1 (points + streaks) ———
+  // ——— M6: gamification v1 (points + streaks; M9 adds homework awards) ———
   pointEvents: defineTable({
     studentId: v.id("students"),
-    kind: v.union(v.literal("attendance"), v.literal("exam")),
+    kind: v.union(
+      v.literal("attendance"),
+      v.literal("exam"),
+      v.literal("homework"),
+    ),
     points: v.number(),
-    refType: v.string(), // "attendance" · "attempt"
+    refType: v.string(), // "attendance" · "attempt" · "submission"
     refId: v.string(), // id of the awarding row — the dedupe key
     day: v.string(), // "YYYY-MM-DD"
   })
@@ -297,6 +302,39 @@ export default defineSchema({
     streak: v.number(), // consecutive active days (≤3-day gaps tolerated)
     lastActiveDay: v.optional(v.string()), // "YYYY-MM-DD"; only moves forward
   }).index("by_studentId", ["studentId"]),
+
+  // ——— M9: homework ———
+  homework: defineTable({
+    classId: v.id("classes"),
+    subjectId: v.id("subjects"),
+    teacherId: v.string(), // Better Auth user id (owner)
+    title: v.string(), // nonempty, ≤200 — enforced in mutations
+    description: v.optional(v.string()), // ≤4000
+    deadline: v.number(), // ms; auto-close scheduled here
+    marks: v.number(), // max grade, 1–100 (UI defaults to 10)
+    status: homeworkStatus,
+    closeFnId: v.optional(v.id("_scheduled_functions")), // auto-close at deadline
+    reminderFnId: v.optional(v.id("_scheduled_functions")), // ~24h-before nudge
+  })
+    .index("by_classId", ["classId"])
+    .index("by_teacherId", ["teacherId"]),
+
+  homeworkSubmissions: defineTable({
+    homeworkId: v.id("homework"),
+    studentId: v.id("students"),
+    text: v.optional(v.string()), // ≤8000, enforced in mutations
+    fileIds: v.array(v.id("_storage")), // ≤5 images/PDFs, validated at submit
+    audioId: v.optional(v.id("_storage")), // one voice note
+    submittedAt: v.number(), // first submission time; edits never move it
+    updatedAt: v.number(),
+    grade: v.optional(v.number()), // 0..homework.marks
+    feedbackText: v.optional(v.string()),
+    gradedAt: v.optional(v.number()),
+    gradedBy: v.optional(v.string()), // Better Auth user id
+  })
+    .index("by_homeworkId_and_studentId", ["homeworkId", "studentId"])
+    .index("by_homeworkId", ["homeworkId"])
+    .index("by_studentId", ["studentId"]),
 
   // ——— Cross-cutting ———
   auditLog: defineTable({

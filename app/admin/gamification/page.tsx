@@ -47,6 +47,8 @@ function ConfigForm({ config }: { config: Config }) {
 
   const [present, setPresent] = useState(String(config.presentPoints));
   const [late, setLate] = useState(String(config.latePoints));
+  // M9 — flat award for turning a homework in.
+  const [homeworkPts, setHomeworkPts] = useState(String(config.homeworkPoints));
   const [thresholds, setThresholds] = useState<Array<ThresholdRow>>(() =>
     config.examThresholds.map((row, i) => ({
       id: i,
@@ -83,6 +85,7 @@ function ConfigForm({ config }: { config: Config }) {
   async function onSave() {
     const presentN = parseNonNeg(present);
     const lateN = parseNonNeg(late);
+    const homeworkN = parseNonNeg(homeworkPts);
     const parsedThresholds = thresholds.map((row) => ({
       minPct: parseNonNeg(row.minPct),
       points: parseNonNeg(row.points),
@@ -90,6 +93,7 @@ function ConfigForm({ config }: { config: Config }) {
     if (
       presentN === null ||
       lateN === null ||
+      homeworkN === null ||
       parsedThresholds.some((row) => row.minPct === null || row.points === null)
     ) {
       toast.error(t("gamification.errInvalidConfig"));
@@ -100,6 +104,7 @@ function ConfigForm({ config }: { config: Config }) {
       await saveConfig({
         presentPoints: presentN,
         latePoints: lateN,
+        homeworkPoints: homeworkN,
         examThresholds: parsedThresholds.map((row) => ({
           minPct: row.minPct as number,
           points: row.points as number,
@@ -137,6 +142,17 @@ function ConfigForm({ config }: { config: Config }) {
                 id="late-points"
                 value={late}
                 onChange={(e) => setLate(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="homework-points">
+                {t("gamification.homeworkSubmit")}
+              </Label>
+              <Input
+                {...numberInputProps}
+                id="homework-points"
+                value={homeworkPts}
+                onChange={(e) => setHomeworkPts(e.target.value)}
               />
             </div>
           </div>

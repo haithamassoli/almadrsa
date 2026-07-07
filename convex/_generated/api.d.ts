@@ -18,6 +18,7 @@ import type * as codes from "../codes.js";
 import type * as exams from "../exams.js";
 import type * as files from "../files.js";
 import type * as gamification from "../gamification.js";
+import type * as homework from "../homework.js";
 import type * as http from "../http.js";
 import type * as lessons from "../lessons.js";
 import type * as lib_audit from "../lib/audit.js";
@@ -54,6 +55,7 @@ declare const fullApi: ApiFromModules<{
   exams: typeof exams;
   files: typeof files;
   gamification: typeof gamification;
+  homework: typeof homework;
   http: typeof http;
   lessons: typeof lessons;
   "lib/audit": typeof lib_audit;

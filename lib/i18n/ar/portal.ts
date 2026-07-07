@@ -1,6 +1,7 @@
 export const portal = {
   navHome: "الرئيسية",
   navExams: "الاختبارات",
+  navHomework: "الواجبات",
   navAttendance: "الحضور",
   navAnnouncements: "الإعلانات",
   navNotifications: "الإشعارات",
