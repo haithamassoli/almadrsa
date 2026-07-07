@@ -14,12 +14,14 @@ import { useParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import {
+  ArrowLeft,
   ArrowRight,
   Check,
   ChevronDown,
   ChevronUp,
   CircleAlert,
   Hourglass,
+  Lock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -73,6 +75,8 @@ type AnswerValue = string | boolean | Array<string> | Record<string, string>;
 type AnswersMap = Record<Id<"questions">, AnswerValue>;
 
 const SAVE_DEBOUNCE_MS = 800;
+/** blur + visibilitychange fire together on a tab switch — count them once. */
+const FOCUS_LOSS_DEBOUNCE_MS = 2000;
 const WARN_MS = 5 * 60_000;
 const MAX_ESSAY_LENGTH = 8000; // attempts.MAX_ESSAY_ANSWER_LENGTH
 const MAX_BLANK_LENGTH = 500; // attempts.MAX_BLANK_ANSWER_LENGTH
@@ -961,6 +965,7 @@ function TakingScreen({
 }) {
   const saveAnswersMutation = useMutation(api.attempts.saveAnswers);
   const submitMutation = useMutation(api.attempts.submit);
+  const logFocusLossMutation = useMutation(api.attempts.logFocusLoss);
   const insets = useShellInsets();
 
   // One-time init: server answers overlaid with locally buffered answers the
@@ -986,6 +991,21 @@ function TakingScreen({
   const [timeUp, setTimeUp] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submitPending, setSubmitPending] = useState(false);
+
+  // M15 no-backtrack: one-question-at-a-time index. A reload resumes at the
+  // first unanswered question — the server locks everything before the
+  // furthest stored answer — or on the last one when all are answered.
+  const noBacktrack = attempt.noBacktrack;
+  const [currentIndex, setCurrentIndex] = useState(() => {
+    if (!noBacktrack) return 0;
+    const firstUnanswered = attempt.questions.findIndex(
+      (question) => !isAnswered(initial.merged[question.questionId]),
+    );
+    return firstUnanswered === -1
+      ? Math.max(0, attempt.questions.length - 1)
+      : firstUnanswered;
+  });
+  const [advancePending, setAdvancePending] = useState(false);
 
   const answersRef = useRef(initial.merged);
   const pendingRef = useRef<AnswersMap>({});
@@ -1104,6 +1124,33 @@ function TakingScreen({
     };
   }, []);
 
+  // M15 integrity: count focus losses (tab hidden / window blur) while the
+  // attempt is in progress. Debounced — the two events fire together on a
+  // tab switch — fire-and-forget, and muted once submit/finalize kicks off
+  // (the screen itself unmounts when the attempt turns submitted).
+  const lastFocusLossRef = useRef(0);
+  useEffect(() => {
+    const report = () => {
+      if (lockedRef.current || finalizedRef.current) return;
+      const now = Date.now();
+      if (now - lastFocusLossRef.current < FOCUS_LOSS_DEBOUNCE_MS) return;
+      lastFocusLossRef.current = now;
+      logFocusLossMutation({ sessionToken, attemptId }).catch(() => {
+        // Best-effort signal — a failed log must never disturb the exam.
+      });
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") report();
+    };
+    const onBlur = () => report();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [logFocusLossMutation, sessionToken, attemptId]);
+
   const handleExpire = useCallback(() => {
     void finalizeRef.current(true);
   }, []);
@@ -1126,6 +1173,28 @@ function TakingScreen({
     }
   }
 
+  /**
+   * M15 no-backtrack: flush the debounced autosave, then advance. Moving on
+   * is gated on the batch actually landing — once a LATER answer is stored,
+   * the server locks every earlier question, so an unsaved current answer
+   * must keep the student here (flushSave already toasted the failure and
+   * re-queued the batch for the next flush).
+   */
+  async function advance(): Promise<void> {
+    setAdvancePending(true);
+    try {
+      await flushRef.current();
+      if (finalizedRef.current) return; // time ran out mid-flush
+      if (Object.keys(pendingRef.current).length > 0) return; // save failed
+      setCurrentIndex((index) =>
+        Math.min(index + 1, attempt.questions.length - 1),
+      );
+      window.scrollTo(0, 0);
+    } finally {
+      setAdvancePending(false);
+    }
+  }
+
   const total = attempt.questions.length;
   const answered = attempt.questions.reduce(
     (count, question) =>
@@ -1133,6 +1202,12 @@ function TakingScreen({
     0,
   );
   const unanswered = total - answered;
+  const currentQuestion: AttemptQuestion | undefined =
+    attempt.questions[currentIndex];
+  const isLastQuestion = currentIndex >= total - 1;
+  const currentAnswered =
+    currentQuestion !== undefined &&
+    isAnswered(answers[currentQuestion.questionId]);
 
   if (timeUp) {
     return (
@@ -1170,18 +1245,44 @@ function TakingScreen({
         <SaveIndicator state={saveState} />
       </div>
 
-      {/* Questions in exam order */}
-      <div className="flex flex-col gap-4">
-        {attempt.questions.map((question, index) => (
-          <QuestionCard
-            key={question.questionId}
-            question={question}
-            index={index}
-            value={answers[question.questionId]}
-            onAnswer={handleAnswer}
-          />
-        ))}
-      </div>
+      {/* Questions: one at a time (no-backtrack) or all in exam order */}
+      {noBacktrack ? (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-bold tabular-nums">
+              {t("examsPortal.progressLine", {
+                i: formatNumber(currentIndex + 1),
+                n: formatNumber(total),
+              })}
+            </span>
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Lock className="size-3 shrink-0" aria-hidden />
+              {t("examsPortal.noBacktrackHint")}
+            </span>
+          </div>
+          {currentQuestion !== undefined ? (
+            <QuestionCard
+              key={currentQuestion.questionId}
+              question={currentQuestion}
+              index={currentIndex}
+              value={answers[currentQuestion.questionId]}
+              onAnswer={handleAnswer}
+            />
+          ) : null}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {attempt.questions.map((question, index) => (
+            <QuestionCard
+              key={question.questionId}
+              question={question}
+              index={index}
+              value={answers[question.questionId]}
+              onAnswer={handleAnswer}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Sticky submit bar */}
       <div
@@ -1194,9 +1295,19 @@ function TakingScreen({
             total: formatNumber(total),
           })}
         </span>
-        <Button onClick={() => setConfirmOpen(true)} disabled={submitPending}>
-          {t("examsPortal.submitCta")}
-        </Button>
+        {noBacktrack && !isLastQuestion ? (
+          <Button
+            onClick={() => void advance()}
+            disabled={!currentAnswered || advancePending}
+          >
+            {t("examsPortal.nextQuestion")}
+            {advancePending ? <Spinner /> : <ArrowLeft aria-hidden />}
+          </Button>
+        ) : (
+          <Button onClick={() => setConfirmOpen(true)} disabled={submitPending}>
+            {t("examsPortal.submitCta")}
+          </Button>
+        )}
       </div>
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

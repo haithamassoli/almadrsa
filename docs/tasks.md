@@ -138,8 +138,8 @@ Ships: installable app that pings parents.
 - [x] Interactive calendar: lessons, exam windows, homework deadlines, holidays/events (admin CRUD), filter by role/class
 
 ### M15 — Exam integrity v2, exports, channels
-- [ ] Unique exam version per student from bank (topic/difficulty mix constraints)
-- [ ] Focus-loss / tab-switch logging on attempts; count visible to teacher
-- [ ] Optional no-backtrack mode
-- [ ] Exportable reports (CSV/PDF: attendance, grades)
-- [ ] WhatsApp/SMS adapter behind the channel abstraction
+- [x] Unique exam version per student from bank (topic/difficulty mix constraints)
+- [x] Focus-loss / tab-switch logging on attempts; count visible to teacher
+- [x] Optional no-backtrack mode
+- [x] Exportable reports (CSV/PDF: attendance, grades)
+- [x] WhatsApp/SMS adapter behind the channel abstraction

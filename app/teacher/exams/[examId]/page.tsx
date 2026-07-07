@@ -7,6 +7,8 @@ import { useMutation, useQuery } from "convex/react";
 import {
   ArrowRight,
   ClipboardCheck,
+  Download,
+  Eye,
   Lock,
   Pencil,
   SearchX,
@@ -56,6 +58,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { downloadCsv, toCsv } from "@/lib/csv";
 import { formatDateTime, formatNumber, t, type MessageKey } from "@/lib/i18n";
 import { ExamStatusBadge } from "../exam-form";
 import { mutationErrorText } from "../errors";
@@ -71,6 +74,7 @@ type ResultRow = {
   effectiveScore?: number;
   gradingPending: boolean;
   submittedAt?: number;
+  focusLossCount?: number; // M15 integrity signal
 };
 
 const ROW_BADGE: Record<
@@ -93,6 +97,38 @@ function RowStatusBadge({ status }: { status: ResultRow["status"] }) {
   return (
     <Badge variant="outline" className={badge.className}>
       {t(badge.labelKey)}
+    </Badge>
+  );
+}
+
+/**
+ * M15 — integrity signal: how many times the student left the exam page
+ * while taking it. Muted at 0, accent up to 3, destructive-toned beyond;
+ * a dash before the attempt starts.
+ */
+function FocusLossBadge({
+  status,
+  count,
+}: {
+  status: ResultRow["status"];
+  count: number | undefined;
+}) {
+  if (status === "not_started") return <span>—</span>;
+  const n = count ?? 0;
+  const className =
+    n === 0
+      ? "border-transparent bg-muted text-muted-foreground"
+      : n <= 3
+        ? "border-transparent bg-accent text-accent-foreground"
+        : "border-transparent bg-destructive/10 text-destructive";
+  return (
+    <Badge
+      variant="outline"
+      className={className}
+      aria-label={t("exams.focusLossAria", { n: formatNumber(n) })}
+    >
+      <Eye aria-hidden />
+      <span className="tabular-nums">{formatNumber(n)}</span>
     </Badge>
   );
 }
@@ -162,9 +198,14 @@ function ExamView({ examId }: { examId: Id<"exams"> }) {
   const [removing, setRemoving] = useState(false);
   const exam = useQuery(api.exams.get, removing ? "skip" : { examId });
   const results = useQuery(api.exams.results, removing ? "skip" : { examId });
-  // M8 — manual-grading worklist, only meaningful for essay exams.
+  // M8 — manual-grading worklist, only meaningful for exams that can hold
+  // essays. M15: a versioned attempt samples its own set from the bank, so it
+  // may include essays the fixed fallback list lacks — versioned exams always
+  // consult the queue (the server counts essays per attempt).
   const examHasEssay =
-    exam !== undefined && exam.questions.some((q) => q.type === "essay");
+    exam !== undefined &&
+    (exam.questions.some((q) => q.type === "essay") ||
+      (exam.versionRules?.length ?? 0) > 0);
   const gradingQueue = useQuery(
     api.exams.gradingQueue,
     removing || !examHasEssay ? "skip" : { examId },
@@ -218,6 +259,37 @@ function ExamView({ examId }: { examId: Id<"exams"> }) {
       setActionPending(false);
       toast.error(mutationErrorText(error));
     }
+  }
+
+  // M15 — download the results table as an Excel-safe (BOM) CSV file.
+  function exportResultsCsv() {
+    if (exam === undefined || results === undefined) return;
+    const csv = toCsv(
+      results.rows.map((row) => ({
+        student: row.studentName,
+        status: t(ROW_BADGE[row.status].labelKey),
+        score:
+          row.status === "submitted" &&
+          !row.gradingPending &&
+          row.effectiveScore !== undefined
+            ? row.effectiveScore
+            : "",
+        max: exam.totalMarks,
+        submittedAt:
+          row.submittedAt !== undefined ? formatDateTime(row.submittedAt) : "",
+        focusLoss:
+          row.status === "not_started" ? "" : (row.focusLossCount ?? 0),
+      })),
+      [
+        { key: "student", label: t("exams.colStudent") },
+        { key: "status", label: t("common.status") },
+        { key: "score", label: t("exams.colScore") },
+        { key: "max", label: t("exams.colTotalMarks") },
+        { key: "submittedAt", label: t("exams.colSubmittedAt") },
+        { key: "focusLoss", label: t("exams.colFocusLoss") },
+      ],
+    );
+    downloadCsv(`${t("exams.csvFileName", { title: exam.title })}.csv`, csv);
   }
 
   if (exam === undefined) {
@@ -360,7 +432,19 @@ function ExamView({ examId }: { examId: Id<"exams"> }) {
 
       {/* Live results */}
       <section className="flex flex-col gap-4">
-        <h2 className="text-lg font-bold">{t("exams.resultsTitle")}</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-bold">{t("exams.resultsTitle")}</h2>
+          {/* M15 — CSV export of the results table */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={exportResultsCsv}
+            disabled={results === undefined || results.rows.length === 0}
+          >
+            <Download />
+            {t("exams.exportCsv")}
+          </Button>
+        </div>
 
         {results === undefined ? (
           <>
@@ -379,7 +463,7 @@ function ExamView({ examId }: { examId: Id<"exams"> }) {
                 <TableBody>
                   {Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 5 }).map((_, j) => (
+                      {Array.from({ length: 6 }).map((_, j) => (
                         <TableCell key={j}>
                           <Skeleton className="h-4 w-full max-w-24" />
                         </TableCell>
@@ -432,6 +516,7 @@ function ExamView({ examId }: { examId: Id<"exams"> }) {
                     <TableHead>{t("exams.colStudent")}</TableHead>
                     <TableHead>{t("common.status")}</TableHead>
                     <TableHead>{t("exams.colScore")}</TableHead>
+                    <TableHead>{t("exams.colFocusLoss")}</TableHead>
                     <TableHead>{t("exams.colSubmittedAt")}</TableHead>
                     <TableHead className="w-24 text-end">
                       <span className="sr-only">{t("common.actions")}</span>
@@ -442,7 +527,7 @@ function ExamView({ examId }: { examId: Id<"exams"> }) {
                   {results.rows.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={5}
+                        colSpan={6}
                         className="py-10 text-center text-muted-foreground"
                       >
                         {t("exams.noStudents")}
@@ -478,6 +563,12 @@ function ExamView({ examId }: { examId: Id<"exams"> }) {
                           ) : (
                             "—"
                           )}
+                        </TableCell>
+                        <TableCell>
+                          <FocusLossBadge
+                            status={row.status}
+                            count={row.focusLossCount}
+                          />
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-muted-foreground">
                           {row.submittedAt !== undefined

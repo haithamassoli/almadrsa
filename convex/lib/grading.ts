@@ -1,4 +1,4 @@
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 
 /**
  * M4/M8 — pure auto-grading, shared verbatim by student submit, the deadline
@@ -22,6 +22,20 @@ export type StoredAnswer =
   | boolean
   | Array<string>
   | Record<string, string>;
+
+/**
+ * M15 — THE source of an attempt's questions. Version-ruled exams sample a
+ * per-student questionSet at start; fixed exams use the exam's frozen array.
+ * EVERY read of "this attempt's questions" (grading, results, grading queue,
+ * analytics tallies, portal stats) must route through this helper — reading
+ * exam.questions directly silently misgrades versioned attempts.
+ */
+export function questionSetOf(
+  attempt: Pick<Doc<"examAttempts">, "questionSet">,
+  exam: Pick<Doc<"exams">, "questions">,
+): Array<{ questionId: Id<"questions">; marks: number }> {
+  return attempt.questionSet ?? exam.questions;
+}
 
 /** Round to 2 decimal places — keeps partial-credit contributions tidy. */
 export function round2(n: number): number {

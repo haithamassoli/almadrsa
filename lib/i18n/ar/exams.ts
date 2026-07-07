@@ -163,4 +163,35 @@ export const exams = {
   recUnsupported: "متصفحك لا يدعم التسجيل الصوتي.",
   recPermissionDenied:
     "تعذّر الوصول إلى الميكروفون. اسمح باستخدامه من إعدادات المتصفح ثم أعد المحاولة.",
+
+  // M15 — security & integrity (builder)
+  securityTitle: "الأمان والنزاهة",
+  fieldNoBacktrack: "منع الرجوع للأسئلة السابقة",
+  noBacktrackHint:
+    "تُعرض الأسئلة واحدًا تلو الآخر ولا يستطيع الطالب العودة إلى سؤال تجاوزه.",
+  fieldVersioned: "نسخة فريدة لكل طالب من البنك",
+  versionedHint:
+    "تُسحب أسئلة كل طالب عشوائيًا من بنك المادة وفق القواعد أدناه بدلًا من التحديد اليدوي.",
+  rulesTitle: "قواعد توليد النسخ",
+  rulesHint:
+    "كل قاعدة تسحب عددًا من أسئلة البنك المطابقة للموضوع والمستوى وتعيّن درجة كل سؤال.",
+  ruleLabel: "القاعدة {n}",
+  ruleTopic: "الموضوع",
+  ruleDifficulty: "المستوى",
+  ruleCount: "عدد الأسئلة",
+  ruleMarksEach: "درجة كل سؤال",
+  anyTopic: "أي موضوع",
+  anyDifficulty: "أي مستوى",
+  addRule: "إضافة قاعدة",
+  removeRule: "حذف القاعدة {n}",
+  rulesTotal: "الدرجة الكلية {total}",
+  errRuleValues:
+    "تحقق من قيم القواعد: عدد الأسئلة من 1 إلى 50، ودرجة كل سؤال أكبر من صفر وبحد أقصى 100.",
+  errInsufficientBank: "لا يكفي عدد الأسئلة المطابقة في البنك لهذه القواعد",
+
+  // M15 — results: focus-loss column + CSV export
+  colFocusLoss: "تشتت التركيز",
+  focusLossAria: "عدد مرات الخروج من صفحة الاختبار: {n}",
+  exportCsv: "تصدير CSV",
+  csvFileName: "نتائج {title}",
 } as const;

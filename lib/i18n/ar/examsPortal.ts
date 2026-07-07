@@ -51,4 +51,8 @@ export const examsPortal = {
   receivedBody: "ستظهر النتيجة بعد اكتمال تصحيح الأسئلة المقالية",
   pendingGradingBadge: "بانتظار التصحيح",
   teacherFeedbackTitle: "ملاحظات المعلّم",
+  // M15 — no-backtrack (one-question-at-a-time) taking mode.
+  progressLine: "سؤال {i} من {n}",
+  nextQuestion: "التالي",
+  noBacktrackHint: "لا يمكن الرجوع للأسئلة السابقة في هذا الاختبار",
 } as const;

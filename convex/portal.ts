@@ -12,6 +12,7 @@ import { weekdayOf } from "./lib/dates";
 import {
   hasEssay,
   isAnswerCorrect,
+  questionSetOf,
   round2,
   sumManualScores,
 } from "./lib/grading";
@@ -303,28 +304,26 @@ export const examClassStats = query({
       throw new ConvexError("not_found");
     }
 
-    // M8: essay exams withhold scores (mine and the class's) until grading
-    // completes — an ungraded attempt neither sees stats nor deflates them
-    // with its auto-only score.
+    // M8: essay attempts withhold scores (mine and the class's) until
+    // grading completes — an ungraded attempt neither sees stats nor
+    // deflates them with its auto-only score. M15: essay-ness is per
+    // ATTEMPT (versioned attempts sample their own question sets); the doc
+    // cache shares bank loads across the class's attempts.
     const exam = await ctx.db.get("exams", args.examId);
-    let examHasEssay = false;
-    if (exam) {
-      for (const examQuestion of exam.questions) {
-        const question = await ctx.db.get("questions", examQuestion.questionId);
-        if (question?.type === "essay") {
-          examHasEssay = true;
-          break;
-        }
-      }
-    }
-    if (examHasEssay && myAttempt.gradedAt === undefined) {
-      throw new ConvexError("not_found");
-    }
-    const effectiveOf = (
+    const questionDocCache = new Map<string, Doc<"questions">>();
+    const effectiveOf = async (
       attempt: Doc<"examAttempts">,
-    ): number | undefined => {
+    ): Promise<number | undefined> => {
       if (attempt.status !== "submitted") return undefined;
-      if (examHasEssay && attempt.gradedAt === undefined) return undefined;
+      if (attempt.gradedAt === undefined && exam) {
+        const questionSet = questionSetOf(attempt, exam);
+        const questionDocs = await loadQuestionDocs(
+          ctx,
+          questionSet,
+          questionDocCache,
+        );
+        if (hasEssay(questionSet, questionDocs)) return undefined;
+      }
       return (
         attempt.overrideScore ??
         round2(
@@ -333,13 +332,19 @@ export const examClassStats = query({
       );
     };
 
+    const myScore = await effectiveOf(myAttempt);
+    if (myScore === undefined) {
+      // My essay attempt is still being graded — no stats yet.
+      throw new ConvexError("not_found");
+    }
+
     const attempts = await ctx.db
       .query("examAttempts")
       .withIndex("by_examId", (q) => q.eq("examId", args.examId))
       .take(500);
     const scores: Array<number> = [];
     for (const attempt of attempts) {
-      const effective = effectiveOf(attempt);
+      const effective = await effectiveOf(attempt);
       if (effective !== undefined) scores.push(effective);
     }
     const sum = scores.reduce((total, score) => total + score, 0);
@@ -348,7 +353,7 @@ export const examClassStats = query({
         scores.length > 0 ? Math.round((sum / scores.length) * 10) / 10 : 0,
       classMax: scores.length > 0 ? Math.max(...scores) : 0,
       submittedCount: scores.length,
-      myScore: effectiveOf(myAttempt) ?? 0,
+      myScore,
       maxScore: myAttempt.maxScore,
     };
   },
@@ -420,20 +425,13 @@ export const studentAnalytics = query({
       .slice(0, 50);
 
     const examCache = new Map<Id<"exams">, Doc<"exams"> | null>();
-    const questionDocsCache = new Map<
-      Id<"exams">,
-      Map<string, Doc<"questions">>
-    >();
+    // M15: question sets are per ATTEMPT (versioned exams sample per
+    // student) — one flat doc cache spans every set touched below.
+    const questionDocCache = new Map<string, Doc<"questions">>();
     const docsOf = async (
-      exam: Doc<"exams">,
-    ): Promise<Map<string, Doc<"questions">>> => {
-      let docs = questionDocsCache.get(exam._id);
-      if (!docs) {
-        docs = await loadQuestionDocs(ctx, exam.questions);
-        questionDocsCache.set(exam._id, docs);
-      }
-      return docs;
-    };
+      questionSet: Array<{ questionId: Id<"questions">; marks: number }>,
+    ): Promise<Map<string, Doc<"questions">>> =>
+      await loadQuestionDocs(ctx, questionSet, questionDocCache);
 
     type GradedAttempt = {
       attempt: Doc<"examAttempts">;
@@ -448,9 +446,11 @@ export const studentAnalytics = query({
         examCache.set(attempt.examId, exam);
       }
       if (!exam || attempt.maxScore <= 0) continue; // defensive
-      const docs = await docsOf(exam);
-      if (hasEssay(exam.questions, docs) && attempt.gradedAt === undefined) {
-        continue; // essay exam still being graded — score not final
+      if (attempt.gradedAt === undefined) {
+        const questionSet = questionSetOf(attempt, exam);
+        if (hasEssay(questionSet, await docsOf(questionSet))) {
+          continue; // essay attempt still being graded — score not final
+        }
       }
       const effective =
         attempt.overrideScore ??
@@ -482,8 +482,6 @@ export const studentAnalytics = query({
     const classAvgOf = async (entry: GradedAttempt): Promise<number | null> => {
       const cached = classAvgByExam.get(entry.exam._id);
       if (cached !== undefined) return cached;
-      const docs = await docsOf(entry.exam);
-      const examHasEssay = hasEssay(entry.exam.questions, docs);
       const rows = await ctx.db
         .query("examAttempts")
         .withIndex("by_examId", (q) => q.eq("examId", entry.exam._id))
@@ -491,7 +489,11 @@ export const studentAnalytics = query({
       const pcts: Array<number> = [];
       for (const row of rows) {
         if (row.status !== "submitted" || row.maxScore <= 0) continue;
-        if (examHasEssay && row.gradedAt === undefined) continue;
+        if (row.gradedAt === undefined) {
+          // M15: finality is per attempt — each row's own question set.
+          const rowSet = questionSetOf(row, entry.exam);
+          if (hasEssay(rowSet, await docsOf(rowSet))) continue;
+        }
         const effective =
           row.overrideScore ??
           round2((row.autoScore ?? 0) + sumManualScores(row.manualScores));
@@ -578,8 +580,10 @@ export const studentAnalytics = query({
       { topic: string; subjectId: Id<"subjects">; correct: number; total: number }
     >();
     for (const entry of graded.slice(0, 20)) {
-      const docs = await docsOf(entry.exam);
-      for (const examQuestion of entry.exam.questions) {
+      // M15: tally the attempt's OWN question set (versioned exams).
+      const questionSet = questionSetOf(entry.attempt, entry.exam);
+      const docs = await docsOf(questionSet);
+      for (const examQuestion of questionSet) {
         const question = docs.get(examQuestion.questionId);
         if (!question || question.type === "essay") continue;
         const topic = question.topic?.trim();

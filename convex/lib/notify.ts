@@ -1,6 +1,7 @@
 import type { MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
+import { sendViaChannels } from "./channels";
 import type { NotificationType } from "./validators";
 
 /**
@@ -13,6 +14,9 @@ import type { NotificationType } from "./validators";
  * ONE web-push delivery action (convex/pushActions.ts) covering all its
  * recipients. The scheduler only fires if the surrounding mutation commits,
  * so a push can never outrun (or survive a rollback of) its in-app row.
+ *
+ * M15 — the same fan-out mirrors to the guardian message channels
+ * (convex/lib/channels.ts → webhook adapter) when the admin enabled them.
  */
 
 export type NotificationPayload = {
@@ -68,6 +72,14 @@ export async function notifyStudents(
       title: payload.title,
       body: payload.body,
       url: pushUrlFor(payload),
+    });
+    // M15: mirror to the guardian channels (WhatsApp/SMS webhook adapter,
+    // convex/lib/channels.ts). Same single choke point as push, so every
+    // notification trigger is covered; disabled config is a pure no-op.
+    await sendViaChannels(ctx, {
+      studentIds: unique,
+      title: payload.title,
+      body: payload.body,
     });
   }
 }

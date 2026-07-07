@@ -167,6 +167,23 @@ export default defineSchema({
     status: examStatus,
     totalMarks: v.number(), // denormalized sum of question marks
     shuffle: v.optional(v.boolean()), // undefined ⇒ true (question/option order)
+    // M15 — unique per-student versions. When set, each attempt samples its
+    // own questionSet from the subject's bank at start (exam.questions is
+    // then only a fallback preview) and totalMarks = Σ count·marksEach.
+    // 1–10 rules; count 1–50; marksEach (0, 100] — enforced in mutations.
+    versionRules: v.optional(
+      v.array(
+        v.object({
+          topic: v.optional(v.string()), // exact match when set
+          difficulty: v.optional(difficulty), // match when set
+          count: v.number(),
+          marksEach: v.number(),
+        }),
+      ),
+    ),
+    // M15 — one-question-at-a-time mode: saves never touch a question
+    // ordered BEFORE the furthest one already answered. undefined ⇒ false.
+    noBacktrack: v.optional(v.boolean()),
     closeFnId: v.optional(v.id("_scheduled_functions")), // auto-close at windowEnd
   })
     .index("by_teacherId", ["teacherId"])
@@ -199,6 +216,14 @@ export default defineSchema({
     overrideAt: v.optional(v.number()),
     // M8 — deterministic shuffle seed (djb2 of the attempt id), set at start.
     seed: v.optional(v.number()),
+    // M15 — the attempt's own sampled question set (versionRules exams);
+    // undefined ⇒ the exam's fixed questions array. EVERY read of an
+    // attempt's questions must go through lib/grading.questionSetOf.
+    questionSet: v.optional(
+      v.array(v.object({ questionId: v.id("questions"), marks: v.number() })),
+    ),
+    // M15 — exam-integrity signal: times the taking tab lost focus (≤999).
+    focusLossCount: v.optional(v.number()),
     // M8 — manual essay grading. gradedAt/gradedBy stamp when EVERY essay
     // question has a manual score; results stay hidden until then.
     manualScores: v.optional(v.record(v.id("questions"), v.number())),

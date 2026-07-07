@@ -5,7 +5,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import { requireAdmin, requireTeacher } from "./auth";
 import { requireStudentAccount } from "./studentAuth";
 import { assertStaffCanAccessClass } from "./students";
@@ -503,15 +503,17 @@ export async function schoolStandings(
 }
 
 /**
- * Early-exit probe: does the exam reference ≥1 essay question? Bounded by
- * the exam's ≤100 questions. Mirrors attempts.examHasEssay (not exported
- * there — importing attempts here would create an import cycle).
+ * Early-exit probe: does the question set reference ≥1 essay question?
+ * Bounded by the set's size. Mirrors attempts.probeHasEssay (not exported
+ * there — importing attempts here would create an import cycle). M15:
+ * callers pass attempt.questionSet ?? exam.questions so versioned attempts
+ * probe their OWN sampled set.
  */
-async function examReferencesEssay(
+async function setReferencesEssay(
   ctx: QueryCtx,
-  exam: Doc<"exams">,
+  questionSet: Array<{ questionId: Id<"questions"> }>,
 ): Promise<boolean> {
-  for (const examQuestion of exam.questions) {
+  for (const examQuestion of questionSet) {
     const question = await ctx.db.get("questions", examQuestion.questionId);
     if (question?.type === "essay") return true;
   }
@@ -580,13 +582,21 @@ export const myProgress = query({
         );
       if (effective !== attempt.maxScore) continue;
       if (attempt.gradedAt === undefined) {
-        let referencesEssay = essayByExam.get(attempt.examId);
-        if (referencesEssay === undefined) {
-          const exam = await ctx.db.get("exams", attempt.examId);
-          referencesEssay = exam
-            ? await examReferencesEssay(ctx, exam)
-            : false;
-          essayByExam.set(attempt.examId, referencesEssay);
+        let referencesEssay: boolean;
+        if (attempt.questionSet !== undefined) {
+          // M15: versioned attempt — its own sampled set decides (per
+          // attempt, so the per-exam cache doesn't apply).
+          referencesEssay = await setReferencesEssay(ctx, attempt.questionSet);
+        } else {
+          let cached = essayByExam.get(attempt.examId);
+          if (cached === undefined) {
+            const exam = await ctx.db.get("exams", attempt.examId);
+            cached = exam
+              ? await setReferencesEssay(ctx, exam.questions)
+              : false;
+            essayByExam.set(attempt.examId, cached);
+          }
+          referencesEssay = cached;
         }
         if (referencesEssay) continue; // score not final yet
       }

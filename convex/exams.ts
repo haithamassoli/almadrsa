@@ -14,6 +14,7 @@ import { logAudit } from "./lib/audit";
 import {
   gradeAnswers,
   hasEssay,
+  questionSetOf,
   round2,
   splitScores,
   sumManualScores,
@@ -24,6 +25,7 @@ import {
   difficulty,
   examStatus,
   questionType,
+  type Difficulty,
 } from "./lib/validators";
 import {
   blankValidator,
@@ -44,15 +46,29 @@ import {
  * expire/close send a "received" notification instead of the score, and the
  * gamification award is deferred to grading completion (exams.gradeEssay).
  *
+ * M15 unique versions: an exam with versionRules samples a per-student
+ * questionSet from the subject's bank at attempt start — exam.questions is
+ * then only a fallback preview. Every read of an attempt's questions goes
+ * through lib/grading.questionSetOf(attempt, exam).
+ *
  * Domain errors use `ConvexError` codes the RTL UI maps to Arabic messages:
  *   not_found · not_assigned · invalid_exam · exam_not_editable
  *   window_past · exam_not_published · not_submitted · invalid_score
- *   invalid_grading
+ *   invalid_grading · insufficient_bank
  */
 
 const examQuestionValidator = v.object({
   questionId: v.id("questions"),
   marks: v.number(),
+});
+
+// M15 — one sampling rule of a version-ruled exam. count (1–50 integer) and
+// marksEach ((0, 100]) are range-checked in validateExamPayload.
+export const versionRuleValidator = v.object({
+  topic: v.optional(v.string()), // exact bank-topic match when set
+  difficulty: v.optional(difficulty), // bank-difficulty match when set
+  count: v.number(),
+  marksEach: v.number(),
 });
 
 /** Shared arg fields of create/update (update makes them all optional). */
@@ -65,6 +81,8 @@ const examCreateFields = {
   windowEnd: v.number(),
   timeLimitMinutes: v.number(),
   shuffle: v.optional(v.boolean()), // undefined ⇒ true
+  versionRules: v.optional(v.array(versionRuleValidator)), // [] ⇒ none
+  noBacktrack: v.optional(v.boolean()), // undefined ⇒ false
 };
 const examUpdateFields = {
   title: v.optional(v.string()),
@@ -75,6 +93,8 @@ const examUpdateFields = {
   windowEnd: v.optional(v.number()),
   timeLimitMinutes: v.optional(v.number()),
   shuffle: v.optional(v.boolean()),
+  versionRules: v.optional(v.array(versionRuleValidator)), // [] clears
+  noBacktrack: v.optional(v.boolean()),
 };
 
 // ——— Shared helpers ———
@@ -96,20 +116,63 @@ async function requireExamOwner(
 }
 
 /**
- * Load the question docs an exam references, once, keyed by question id.
- * Shared with convex/attempts.ts (grading at submit/expire).
+ * Load the question docs a question set references, once, keyed by question
+ * id. Shared with convex/attempts.ts (grading at submit/expire). M15: pass a
+ * `cache` map to share loads across ATTEMPTS of the same exam (versioned
+ * attempts overlap heavily on the same bank pool); the returned map may then
+ * hold extra entries — every caller only ever looks up its own set's ids.
  */
 export async function loadQuestionDocs(
   ctx: QueryCtx,
   examQuestions: Array<{ questionId: Id<"questions">; marks: number }>,
+  cache?: Map<string, Doc<"questions">>,
 ): Promise<Map<string, Doc<"questions">>> {
-  const docs = new Map<string, Doc<"questions">>();
+  const docs = cache ?? new Map<string, Doc<"questions">>();
   for (const examQuestion of examQuestions) {
     if (docs.has(examQuestion.questionId)) continue;
     const doc = await ctx.db.get("questions", examQuestion.questionId);
     if (doc) docs.set(examQuestion.questionId, doc);
   }
   return docs;
+}
+
+// ——— M15: version-rule helpers (shared with convex/attempts.ts) ———
+
+export type VersionRule = {
+  topic?: string;
+  difficulty?: Difficulty;
+  count: number;
+  marksEach: number;
+};
+
+/** One rule's bank filter: topic exact (when set), difficulty (when set). */
+export function ruleMatches(
+  question: Doc<"questions">,
+  rule: { topic?: string; difficulty?: Difficulty },
+): boolean {
+  if (rule.topic !== undefined && question.topic !== rule.topic) return false;
+  if (
+    rule.difficulty !== undefined &&
+    question.difficulty !== rule.difficulty
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * The subject's question bank — the base pool version rules validate and
+ * sample against. Bounded to 500 rows like questions.list, so a bank beyond
+ * the cap contributes only the same 500 the bank screen shows.
+ */
+export async function loadSubjectBank(
+  ctx: QueryCtx,
+  subjectId: Id<"subjects">,
+): Promise<Array<Doc<"questions">>> {
+  return await ctx.db
+    .query("questions")
+    .withIndex("by_subjectId", (q) => q.eq("subjectId", subjectId))
+    .take(500);
 }
 
 type ExamPayload = {
@@ -120,6 +183,7 @@ type ExamPayload = {
   windowStart: number;
   windowEnd: number;
   timeLimitMinutes: number;
+  versionRules?: Array<VersionRule>;
 };
 
 /**
@@ -129,13 +193,23 @@ type ExamPayload = {
  * limit, 0 or >100 questions, marks outside (0, 100], duplicate questions
  * (answers are keyed by questionId — a duplicate could only ever hold one
  * answer yet would be graded twice), and questions that are missing,
- * archived or from another subject. Returns the trimmed title + totalMarks.
+ * archived or from another subject.
+ *
+ * M15 versionRules (when present, [] counts as absent): 1–10 rules, each
+ * with an integer count 1–50 and marksEach in (0, 100]; topics trimmed
+ * (empty ⇒ any topic). totalMarks then becomes Σ count·marksEach — the
+ * fixed questions list stays validated as the fallback preview. Returns the
+ * trimmed title, totalMarks and the normalized rules.
  */
 async function validateExamPayload(
   ctx: QueryCtx,
   staff: StaffUser,
   input: ExamPayload,
-): Promise<{ title: string; totalMarks: number }> {
+): Promise<{
+  title: string;
+  totalMarks: number;
+  versionRules: Array<VersionRule> | undefined;
+}> {
   if (staff.role !== "admin") {
     const assignments = await ctx.db
       .query("teacherAssignments")
@@ -188,13 +262,45 @@ async function validateExamPayload(
     }
     totalMarks += examQuestion.marks;
   }
-  return { title, totalMarks };
+
+  // M15 — version rules ([] normalizes to "no rules", like empty payload
+  // arrays elsewhere). Bank sufficiency is checked at PUBLISH, not here —
+  // drafts may be written before the bank is filled.
+  let versionRules: Array<VersionRule> | undefined;
+  if (input.versionRules !== undefined && input.versionRules.length > 0) {
+    if (input.versionRules.length > 10) throw new ConvexError("invalid_exam");
+    versionRules = input.versionRules.map((rule) => {
+      if (
+        !Number.isInteger(rule.count) ||
+        rule.count < 1 ||
+        rule.count > 50 ||
+        !(rule.marksEach > 0) ||
+        rule.marksEach > 100
+      ) {
+        throw new ConvexError("invalid_exam");
+      }
+      const topic = rule.topic?.trim();
+      return {
+        topic: topic !== undefined && topic.length > 0 ? topic : undefined,
+        difficulty: rule.difficulty,
+        count: rule.count,
+        marksEach: rule.marksEach,
+      };
+    });
+    // Versioned totalMarks — every attempt's sampled set sums to exactly
+    // this by construction (count questions at marksEach per rule).
+    totalMarks = round2(
+      versionRules.reduce((sum, rule) => sum + rule.count * rule.marksEach, 0),
+    );
+  }
+  return { title, totalMarks, versionRules };
 }
 
 /**
  * Idempotent close: mark the exam closed and auto-submit every in-progress
- * attempt with its current answers graded (question docs loaded once).
- * Shared by closeNow and the scheduled closeExam.
+ * attempt with its current answers graded (question docs loaded once per
+ * distinct question via the shared cache). Shared by closeNow and the
+ * scheduled closeExam.
  */
 async function closeSweep(
   ctx: MutationCtx,
@@ -211,21 +317,25 @@ async function closeSweep(
   const inProgress = attempts.filter((a) => a.status === "in_progress");
   if (inProgress.length === 0) return;
 
-  const questionDocs = await loadQuestionDocs(ctx, exam.questions);
-  // M8: essay exams withhold results — the score is only final once every
-  // essay is manually graded, so the sweep sends a "received" note and the
-  // gamification award is deferred to grading completion (gradeEssay).
-  const examHasEssay = hasEssay(exam.questions, questionDocs);
+  // M15: versioned attempts each grade against their OWN sampled set — the
+  // doc cache shares bank loads across attempts (heavy pool overlap).
+  const questionDocCache = new Map<string, Doc<"questions">>();
   const now = Date.now();
   // M6: swept auto-submissions earn exam points too (UTC day key — same
   // convention as attempts.submit).
   const day = new Date(now).toISOString().slice(0, 10);
   for (const attempt of inProgress) {
-    const autoScore = gradeAnswers(
-      exam.questions,
-      questionDocs,
-      attempt.answers,
+    const questionSet = questionSetOf(attempt, exam);
+    const questionDocs = await loadQuestionDocs(
+      ctx,
+      questionSet,
+      questionDocCache,
     );
+    // M8: essay attempts withhold results — the score is only final once
+    // every essay is manually graded, so the sweep sends a "received" note
+    // and the gamification award is deferred to completion (gradeEssay).
+    const attemptHasEssay = hasEssay(questionSet, questionDocs);
+    const autoScore = gradeAnswers(questionSet, questionDocs, attempt.answers);
     await ctx.db.patch("examAttempts", attempt._id, {
       status: "submitted",
       submittedAt: now,
@@ -235,7 +345,7 @@ async function closeSweep(
     if (attempt.expireFnId !== undefined) {
       await ctx.scheduler.cancel(attempt.expireFnId);
     }
-    if (examHasEssay) {
+    if (attemptHasEssay) {
       await notifyStudents(ctx, [attempt.studentId], {
         type: "result",
         title: `استلمنا إجاباتك: ${exam.title}`,
@@ -369,6 +479,8 @@ export const get = query({
     timeLimitMinutes: v.number(),
     totalMarks: v.number(),
     shuffle: v.optional(v.boolean()), // undefined ⇒ true
+    versionRules: v.optional(v.array(versionRuleValidator)), // M15
+    noBacktrack: v.optional(v.boolean()), // M15, undefined ⇒ false
     questions: v.array(
       v.object({
         questionId: v.id("questions"),
@@ -435,6 +547,8 @@ export const get = query({
       timeLimitMinutes: exam.timeLimitMinutes,
       totalMarks: exam.totalMarks,
       shuffle: exam.shuffle,
+      versionRules: exam.versionRules,
+      noBacktrack: exam.noBacktrack,
       questions,
     };
   },
@@ -444,8 +558,10 @@ export const get = query({
  * Marking overview (owner-or-admin): the class's active roster LEFT JOINed
  * with this exam's attempts, plus stats over submitted effective scores.
  * M8: effectiveScore = override ?? (autoScore + Σ manualScores); rows carry
- * gradingPending (essay exam, not yet fully graded) and stats only count
- * fully-graded (or essay-free) submitted attempts.
+ * gradingPending (essay attempt, not yet fully graded) and stats only count
+ * fully-graded (or essay-free) submitted attempts. M15: essay-ness is per
+ * ATTEMPT (versioned attempts sample their own sets) and rows carry the
+ * focus-loss counter logged while taking.
  */
 export const results = query({
   args: { examId: v.id("exams") },
@@ -465,6 +581,7 @@ export const results = query({
         effectiveScore: v.optional(v.number()),
         gradingPending: v.boolean(),
         submittedAt: v.optional(v.number()),
+        focusLossCount: v.optional(v.number()), // M15 integrity signal
       }),
     ),
     stats: v.object({
@@ -478,8 +595,7 @@ export const results = query({
   handler: async (ctx, args) => {
     const staff = await requireTeacher(ctx);
     const exam = await requireExamOwner(ctx, staff, args.examId);
-    const questionDocs = await loadQuestionDocs(ctx, exam.questions);
-    const examHasEssay = hasEssay(exam.questions, questionDocs);
+    const questionDocCache = new Map<string, Doc<"questions">>();
 
     const attempts = await ctx.db
       .query("examAttempts")
@@ -507,6 +623,7 @@ export const results = query({
       effectiveScore?: number;
       gradingPending: boolean;
       submittedAt?: number;
+      focusLossCount?: number;
     }> = [];
     const effectiveScores: Array<number> = [];
     for (const enrollment of enrollments) {
@@ -524,8 +641,18 @@ export const results = query({
         row.autoScore = attempt.autoScore;
         row.overrideScore = attempt.overrideScore;
         row.submittedAt = attempt.submittedAt;
+        row.focusLossCount = attempt.focusLossCount;
         if (attempt.status === "submitted") {
-          row.gradingPending = examHasEssay && attempt.gradedAt === undefined;
+          // M15: per-attempt essay check — the attempt's own question set.
+          const questionSet = questionSetOf(attempt, exam);
+          const questionDocs = await loadQuestionDocs(
+            ctx,
+            questionSet,
+            questionDocCache,
+          );
+          const attemptHasEssay = hasEssay(questionSet, questionDocs);
+          row.gradingPending =
+            attemptHasEssay && attempt.gradedAt === undefined;
           const effective =
             attempt.overrideScore ??
             round2(
@@ -558,12 +685,12 @@ export const results = query({
   },
 });
 
-/** The essay question ids of an exam, in exam order. */
+/** The essay question ids of a question set, in set order. */
 function essayQuestionIds(
-  exam: Doc<"exams">,
+  questionSet: Array<{ questionId: Id<"questions">; marks: number }>,
   questionDocs: Map<string, Doc<"questions">>,
 ): Array<Id<"questions">> {
-  return exam.questions
+  return questionSet
     .map((examQuestion) => examQuestion.questionId)
     .filter((questionId) => questionDocs.get(questionId)?.type === "essay");
 }
@@ -571,7 +698,9 @@ function essayQuestionIds(
 /**
  * M8 — the exam's manual-grading worklist (owner-or-admin): submitted
  * attempts still awaiting grading (≥1 essay, no gradedAt stamp), oldest
- * submission first. Empty for essay-free exams.
+ * submission first. Empty for essay-free exams. M15: essays are counted per
+ * ATTEMPT — a versioned attempt may hold essays even when the exam's
+ * fallback question list has none (and vice versa).
  */
 export const gradingQueue = query({
   args: { examId: v.id("exams") },
@@ -587,9 +716,7 @@ export const gradingQueue = query({
   handler: async (ctx, args) => {
     const staff = await requireTeacher(ctx);
     const exam = await requireExamOwner(ctx, staff, args.examId);
-    const questionDocs = await loadQuestionDocs(ctx, exam.questions);
-    const essayIds = essayQuestionIds(exam, questionDocs);
-    if (essayIds.length === 0) return [];
+    const questionDocCache = new Map<string, Doc<"questions">>();
 
     const attempts = await ctx.db
       .query("examAttempts")
@@ -600,6 +727,14 @@ export const gradingQueue = query({
       if (attempt.status !== "submitted" || attempt.gradedAt !== undefined) {
         continue;
       }
+      const questionSet = questionSetOf(attempt, exam);
+      const questionDocs = await loadQuestionDocs(
+        ctx,
+        questionSet,
+        questionDocCache,
+      );
+      const essayIds = essayQuestionIds(questionSet, questionDocs);
+      if (essayIds.length === 0) continue; // essay-free attempt — final
       const student = await ctx.db.get("students", attempt.studentId);
       rows.push({
         attemptId: attempt._id,
@@ -660,11 +795,13 @@ export const attemptForGrading = query({
     if (!attempt) throw new ConvexError("not_found");
     const exam = await requireExamOwner(ctx, staff, attempt.examId);
     const student = await ctx.db.get("students", attempt.studentId);
-    const questionDocs = await loadQuestionDocs(ctx, exam.questions);
-    const { autoMarks, essayMarks } = splitScores(exam.questions, questionDocs);
+    // M15: grade against the attempt's OWN question set (versioned exams).
+    const questionSet = questionSetOf(attempt, exam);
+    const questionDocs = await loadQuestionDocs(ctx, questionSet);
+    const { autoMarks, essayMarks } = splitScores(questionSet, questionDocs);
 
     const essays = [];
-    for (const examQuestion of exam.questions) {
+    for (const examQuestion of questionSet) {
       const question = questionDocs.get(examQuestion.questionId);
       if (!question || question.type !== "essay") continue;
       const answer = attempt.answers[examQuestion.questionId];
@@ -717,7 +854,11 @@ export const create = mutation({
   returns: v.id("exams"),
   handler: async (ctx, args) => {
     const staff = await requireTeacher(ctx);
-    const { title, totalMarks } = await validateExamPayload(ctx, staff, args);
+    const { title, totalMarks, versionRules } = await validateExamPayload(
+      ctx,
+      staff,
+      args,
+    );
     const examId = await ctx.db.insert("exams", {
       title,
       teacherId: staff.id,
@@ -730,6 +871,8 @@ export const create = mutation({
       status: "draft",
       totalMarks,
       shuffle: args.shuffle, // undefined ⇒ true
+      versionRules, // M15 — per-student versions when set
+      noBacktrack: args.noBacktrack, // M15 — undefined ⇒ false
     });
     await logAudit(ctx, {
       actorType: "staff",
@@ -741,6 +884,7 @@ export const create = mutation({
         classId: args.classId,
         subjectId: args.subjectId,
         questionCount: args.questions.length,
+        versionRuleCount: versionRules?.length,
         totalMarks,
       },
     });
@@ -751,7 +895,8 @@ export const create = mutation({
 /**
  * Edit a DRAFT exam (owner-or-admin). Partial args merge over the stored
  * exam, then the merged result is revalidated exactly like create and
- * totalMarks recomputed.
+ * totalMarks recomputed. M15: versionRules is tri-state — omitted keeps the
+ * stored rules, `[]` clears them (back to a fixed-questions exam).
  */
 export const update = mutation({
   args: { examId: v.id("exams"), ...examUpdateFields },
@@ -768,8 +913,9 @@ export const update = mutation({
       windowStart: args.windowStart ?? exam.windowStart,
       windowEnd: args.windowEnd ?? exam.windowEnd,
       timeLimitMinutes: args.timeLimitMinutes ?? exam.timeLimitMinutes,
+      versionRules: args.versionRules ?? exam.versionRules,
     };
-    const { title, totalMarks } = await validateExamPayload(
+    const { title, totalMarks, versionRules } = await validateExamPayload(
       ctx,
       staff,
       effective,
@@ -784,6 +930,8 @@ export const update = mutation({
       timeLimitMinutes: effective.timeLimitMinutes,
       totalMarks,
       shuffle: args.shuffle ?? exam.shuffle,
+      versionRules, // undefined clears ([] normalized there)
+      noBacktrack: args.noBacktrack ?? exam.noBacktrack,
     });
     return null;
   },
@@ -818,6 +966,13 @@ export const remove = mutation({
  * Publish a draft (owner-or-admin): students may attempt once the window
  * opens; an auto-close is scheduled at windowEnd. Refused when the window
  * already ended ("window_past").
+ *
+ * M15 — version-ruled exams additionally need a big-enough bank BEFORE any
+ * student can start: per rule enough matching non-archived subject questions
+ * (essays allowed — they just queue for manual grading), and enough DISTINCT
+ * questions across all rules together (pools may overlap; attempts sample
+ * without replacement across the whole set). Failure is the bare code
+ * "insufficient_bank" — no counts leak.
  */
 export const publish = mutation({
   args: { examId: v.id("exams") },
@@ -827,6 +982,23 @@ export const publish = mutation({
     const exam = await requireExamOwner(ctx, staff, args.examId);
     if (exam.status !== "draft") throw new ConvexError("exam_not_editable");
     if (exam.windowEnd <= Date.now()) throw new ConvexError("window_past");
+    if (exam.versionRules !== undefined && exam.versionRules.length > 0) {
+      const bank = await loadSubjectBank(ctx, exam.subjectId);
+      const active = bank.filter((question) => !question.archived);
+      const distinct = new Set<string>();
+      let required = 0;
+      for (const rule of exam.versionRules) {
+        const pool = active.filter((question) => ruleMatches(question, rule));
+        if (pool.length < rule.count) {
+          throw new ConvexError("insufficient_bank");
+        }
+        for (const question of pool) distinct.add(question._id);
+        required += rule.count;
+      }
+      if (distinct.size < required) {
+        throw new ConvexError("insufficient_bank");
+      }
+    }
     const closeFnId = await ctx.scheduler.runAt(
       exam.windowEnd,
       internal.exams.closeExam,
@@ -936,8 +1108,10 @@ export const gradeEssay = mutation({
       throw new ConvexError("not_submitted");
     }
 
-    // The question must be an ESSAY question OF THIS EXAM.
-    const examQuestion = exam.questions.find(
+    // The question must be an ESSAY question OF THIS ATTEMPT'S set (M15:
+    // versioned attempts hold their own sampled marks).
+    const attemptQuestionSet = questionSetOf(attempt, exam);
+    const examQuestion = attemptQuestionSet.find(
       (q) => q.questionId === args.questionId,
     );
     if (!examQuestion) throw new ConvexError("invalid_grading");
@@ -991,10 +1165,10 @@ export const gradeEssay = mutation({
       meta: { questionId: args.questionId, score: args.score },
     });
 
-    // Completion check: every essay question of the exam now has a manual
-    // score, and this is the FIRST completion (gradedAt not yet stamped).
-    const questionDocs = await loadQuestionDocs(ctx, exam.questions);
-    const essayIds = essayQuestionIds(exam, questionDocs);
+    // Completion check: every essay question of the ATTEMPT'S set now has a
+    // manual score, and this is the FIRST completion (gradedAt not stamped).
+    const questionDocs = await loadQuestionDocs(ctx, attemptQuestionSet);
+    const essayIds = essayQuestionIds(attemptQuestionSet, questionDocs);
     const allGraded = essayIds.every(
       (questionId) => manualScores[questionId] !== undefined,
     );

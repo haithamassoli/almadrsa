@@ -8,12 +8,13 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireStudentAccount } from "./studentAuth";
-import { loadQuestionDocs } from "./exams";
+import { loadQuestionDocs, loadSubjectBank, ruleMatches } from "./exams";
 import { awardForExam } from "./gamification";
 import { logAudit } from "./lib/audit";
 import {
   gradeAnswers,
   hasEssay,
+  questionSetOf,
   round2,
   sumManualScores,
   type StoredAnswer,
@@ -36,10 +37,13 @@ import { attemptStatus, questionType } from "./lib/validators";
  *     options shuffle only when exam.shuffle !== false;
  *   · essay exams withhold every score until the teacher finishes grading
  *     (attempt.gradedAt) — until then gradingPending is true and
- *     autoScore/overrideScore/totalScore stay undefined.
+ *     autoScore/overrideScore/totalScore stay undefined;
+ *   · M15: a version-ruled exam samples a per-student questionSet at start —
+ *     EVERY question read below goes through questionSetOf(attempt, exam).
  *
  * Domain errors use `ConvexError` codes the RTL UI maps to Arabic messages:
  *   not_found · exam_not_open · not_enrolled · attempt_expired
+ *   insufficient_bank
  */
 
 /** Extra time after the deadline during which answer saves still land. */
@@ -96,14 +100,16 @@ function tokenMaps(
 }
 
 /**
- * Whether the exam references ≥1 essay question — early-exit probe, bounded
- * by the exam's ≤100 questions. Used where the full doc map isn't needed.
+ * Whether a question set references ≥1 essay question — early-exit probe,
+ * bounded by the set's size. Used where the full doc map isn't needed;
+ * callers pass questionSetOf(attempt, exam) so versioned attempts probe
+ * their OWN sampled set.
  */
-async function examHasEssay(
+async function probeHasEssay(
   ctx: QueryCtx,
-  exam: Doc<"exams">,
+  questionSet: Array<{ questionId: Id<"questions"> }>,
 ): Promise<boolean> {
-  for (const examQuestion of exam.questions) {
+  for (const examQuestion of questionSet) {
     const question = await ctx.db.get("questions", examQuestion.questionId);
     if (question?.type === "essay") return true;
   }
@@ -196,8 +202,8 @@ export const listForStudent = query({
                 (attempt.autoScore ?? 0) +
                   sumManualScores(attempt.manualScores),
               );
-          } else if (await examHasEssay(ctx, exam)) {
-            // Essay exam awaiting manual grading — no score yet.
+          } else if (await probeHasEssay(ctx, questionSetOf(attempt, exam))) {
+            // Essay attempt awaiting manual grading — no score yet.
             state = "pending_grading";
           } else {
             state = "submitted";
@@ -276,6 +282,7 @@ export const getAttempt = query({
     gradingPending: v.boolean(),
     maxScore: v.number(),
     totalMarks: v.number(),
+    noBacktrack: v.boolean(), // M15 — UI switches to one-question-at-a-time
     feedback: v.optional(
       v.record(
         v.id("questions"),
@@ -320,10 +327,12 @@ export const getAttempt = query({
     // exactly what start would have stamped, so the fallback is identical.
     const seed = attempt.seed ?? djb2(attempt._id);
     const shuffleEnabled = exam.shuffle !== false;
-    const questionDocs = await loadQuestionDocs(ctx, exam.questions);
+    // M15: the attempt's OWN question set (versioned exams sample at start).
+    const questionSet = questionSetOf(attempt, exam);
+    const questionDocs = await loadQuestionDocs(ctx, questionSet);
     const orderedExamQuestions = shuffleEnabled
-      ? seededShuffle(exam.questions, seed, "questions")
-      : exam.questions;
+      ? seededShuffle(questionSet, seed, "questions")
+      : questionSet;
 
     const questions = [];
     for (const examQuestion of orderedExamQuestions) {
@@ -447,7 +456,7 @@ export const getAttempt = query({
     const pending =
       attempt.status === "submitted" &&
       attempt.gradedAt === undefined &&
-      hasEssay(exam.questions, questionDocs);
+      hasEssay(questionSet, questionDocs);
     const finalScoreKnown = attempt.status === "submitted" && !pending;
 
     let feedback:
@@ -485,6 +494,7 @@ export const getAttempt = query({
       gradingPending: pending,
       maxScore: attempt.maxScore,
       totalMarks: attempt.maxScore,
+      noBacktrack: exam.noBacktrack === true,
       feedback,
       questions,
     };
@@ -494,10 +504,67 @@ export const getAttempt = query({
 // ——— Mutations ———
 
 /**
+ * M15 — sample one attempt's question set from the subject bank. Rules run
+ * in listed order; each draws `count` questions WITHOUT replacement — also
+ * across rules, since answers are keyed by question id (a duplicate could
+ * hold only one answer yet be graded twice) — from its matching non-archived
+ * pool, sorted by _id for determinism and then seeded-shuffled (mulberry32
+ * via seededShuffle, salt "rule:<index>"). Publish guaranteed sufficiency
+ * over the non-archived bank; if it shrank since (post-publish archiving or
+ * subject moves), archived matches are pulled back in — they still grade
+ * fine, questions are never hard-deleted — before failing with
+ * "insufficient_bank". Σ marks === exam.totalMarks by construction.
+ */
+function sampleQuestionSet(
+  bank: Array<Doc<"questions">>,
+  rules: NonNullable<Doc<"exams">["versionRules"]>,
+  seed: number,
+): Array<{ questionId: Id<"questions">; marks: number }> {
+  const byId = (a: Doc<"questions">, b: Doc<"questions">): number =>
+    a._id < b._id ? -1 : 1;
+  const used = new Set<string>();
+  const questionSet: Array<{ questionId: Id<"questions">; marks: number }> =
+    [];
+  for (const [index, rule] of rules.entries()) {
+    const pool = bank
+      .filter(
+        (question) =>
+          !question.archived &&
+          ruleMatches(question, rule) &&
+          !used.has(question._id),
+      )
+      .sort(byId);
+    if (pool.length < rule.count) {
+      pool.push(
+        ...bank
+          .filter(
+            (question) =>
+              question.archived &&
+              ruleMatches(question, rule) &&
+              !used.has(question._id),
+          )
+          .sort(byId),
+      );
+    }
+    if (pool.length < rule.count) throw new ConvexError("insufficient_bank");
+    const picked = seededShuffle(pool, seed, `rule:${index}`).slice(
+      0,
+      rule.count,
+    );
+    for (const question of picked) {
+      used.add(question._id);
+      questionSet.push({ questionId: question._id, marks: rule.marksEach });
+    }
+  }
+  return questionSet;
+}
+
+/**
  * Start (or resume) the student's attempt on a published exam whose window
  * is open. At most one attempt per (exam, student) — an existing one is
  * returned as-is, never duplicated. The per-attempt deadline is
  * min(now + timeLimit, windowEnd) and an auto-submit is scheduled at it.
+ * M15: version-ruled exams freeze the student's unique questionSet here.
  */
 export const start = mutation({
   args: { sessionToken: v.string(), examId: v.id("exams") },
@@ -562,9 +629,24 @@ export const start = mutation({
     // M8 — shuffle seed: djb2 of the attempt id string. Deterministic (no
     // RNG state), unique per attempt, and computable post-insert in the
     // same patch that stores the expire handle.
+    const seed = djb2(attemptId);
+    // M15 — version-ruled exams sample this student's own question set now
+    // (seeded by the attempt, so the whole mutation stays deterministic; a
+    // sampling failure rolls the insert and the scheduled expire back).
+    let questionSet:
+      | Array<{ questionId: Id<"questions">; marks: number }>
+      | undefined;
+    if (exam.versionRules !== undefined && exam.versionRules.length > 0) {
+      questionSet = sampleQuestionSet(
+        await loadSubjectBank(ctx, exam.subjectId),
+        exam.versionRules,
+        seed,
+      );
+    }
     await ctx.db.patch("examAttempts", attemptId, {
       expireFnId,
-      seed: djb2(attemptId),
+      seed,
+      questionSet,
     });
     await logAudit(ctx, {
       actorType: "student",
@@ -701,8 +783,16 @@ function detokenizeAnswer(
 /**
  * Merge an answers batch into the student's own in-progress attempt.
  * Accepted until deadline + 30s grace (network slack); keys that are not
- * questions of this exam — and values whose shape doesn't match the
+ * questions of this attempt — and values whose shape doesn't match the
  * question's type — are dropped silently.
+ *
+ * M15 no-backtrack: when exam.noBacktrack, a save may never touch a
+ * question ordered BEFORE the furthest question that already has a stored
+ * answer — the order being the same seeded shuffle getAttempt shows.
+ * Violations drop silently like every other invalid entry (saves never
+ * hard-fail mid-exam). Locking advances per SAVE-progression, not per
+ * keystroke: the UI shows one question at a time and saves it before moving
+ * forward, so re-saving the current furthest question stays allowed.
  */
 export const saveAnswers = mutation({
   args: {
@@ -726,12 +816,40 @@ export const saveAnswers = mutation({
     const exam = await ctx.db.get("exams", attempt.examId);
     if (!exam) throw new ConvexError("not_found");
 
-    const questionDocs = await loadQuestionDocs(ctx, exam.questions);
+    // M15: validate against the attempt's OWN question set.
+    const questionSet = questionSetOf(attempt, exam);
+    const questionDocs = await loadQuestionDocs(ctx, questionSet);
     const seed = attempt.seed ?? djb2(attempt._id);
+
+    // M15 no-backtrack: derive the attempt's question order (the exact
+    // shuffle getAttempt serves) and the furthest already-answered index.
+    const noBacktrack = exam.noBacktrack === true;
+    const orderIndex = new Map<string, number>();
+    let furthestAnswered = -1;
+    if (noBacktrack) {
+      const ordered =
+        exam.shuffle !== false
+          ? seededShuffle(questionSet, seed, "questions")
+          : questionSet;
+      ordered.forEach((examQuestion, index) => {
+        orderIndex.set(examQuestion.questionId, index);
+      });
+      for (const key of Object.keys(attempt.answers)) {
+        const index = orderIndex.get(key);
+        if (index !== undefined && index > furthestAnswered) {
+          furthestAnswered = index;
+        }
+      }
+    }
+
     const cleaned: Record<Id<"questions">, StoredAnswer> = {};
     for (const [questionId, rawAnswer] of Object.entries(args.answers)) {
       const question = questionDocs.get(questionId);
       if (!question) continue; // drop unknown keys
+      if (noBacktrack) {
+        const index = orderIndex.get(questionId);
+        if (index === undefined || index < furthestAnswered) continue; // locked
+      }
       const answer = detokenizeAnswer(question, seed, rawAnswer);
       if (answer === undefined) continue; // drop untranslatable tokens
       if (!isValidAnswerShape(question, answer)) continue; // drop bad shapes
@@ -739,6 +857,31 @@ export const saveAnswers = mutation({
     }
     await ctx.db.patch("examAttempts", args.attemptId, {
       answers: { ...attempt.answers, ...cleaned },
+    });
+    return null;
+  },
+});
+
+/**
+ * M15 — count one focus loss (tab blur / visibility change) on the
+ * student's own in-progress attempt, capped at 999. High-frequency and
+ * best-effort by design: no audit row, and an attempt that just got
+ * submitted (race with expiry) is a silent no-op rather than an error.
+ */
+export const logFocusLoss = mutation({
+  args: { sessionToken: v.string(), attemptId: v.id("examAttempts") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { studentId } = await requireStudentAccount(ctx, args.sessionToken);
+    const attempt = await ctx.db.get("examAttempts", args.attemptId);
+    if (!attempt || attempt.studentId !== studentId) {
+      throw new ConvexError("not_found");
+    }
+    if (attempt.status !== "in_progress") return null;
+    const next = Math.min((attempt.focusLossCount ?? 0) + 1, 999);
+    if (next === attempt.focusLossCount) return null; // already at the cap
+    await ctx.db.patch("examAttempts", args.attemptId, {
+      focusLossCount: next,
     });
     return null;
   },
@@ -777,7 +920,7 @@ export const submit = mutation({
       const pending =
         attempt.gradedAt === undefined &&
         exam !== null &&
-        (await examHasEssay(ctx, exam));
+        (await probeHasEssay(ctx, questionSetOf(attempt, exam)));
       return pending
         ? {
             autoScore: undefined,
@@ -796,9 +939,11 @@ export const submit = mutation({
     let autoScore = 0;
     let pendingGrading = false;
     if (exam) {
-      const questionDocs = await loadQuestionDocs(ctx, exam.questions);
-      autoScore = gradeAnswers(exam.questions, questionDocs, attempt.answers);
-      pendingGrading = hasEssay(exam.questions, questionDocs);
+      // M15: grade the attempt's OWN question set (versioned exams).
+      const questionSet = questionSetOf(attempt, exam);
+      const questionDocs = await loadQuestionDocs(ctx, questionSet);
+      autoScore = gradeAnswers(questionSet, questionDocs, attempt.answers);
+      pendingGrading = hasEssay(questionSet, questionDocs);
     }
     await ctx.db.patch("examAttempts", args.attemptId, {
       status: "submitted",
@@ -875,9 +1020,11 @@ export const expire = internalMutation({
     let autoScore = 0;
     let pendingGrading = false;
     if (exam) {
-      const questionDocs = await loadQuestionDocs(ctx, exam.questions);
-      autoScore = gradeAnswers(exam.questions, questionDocs, attempt.answers);
-      pendingGrading = hasEssay(exam.questions, questionDocs);
+      // M15: grade the attempt's OWN question set (versioned exams).
+      const questionSet = questionSetOf(attempt, exam);
+      const questionDocs = await loadQuestionDocs(ctx, questionSet);
+      autoScore = gradeAnswers(questionSet, questionDocs, attempt.answers);
+      pendingGrading = hasEssay(questionSet, questionDocs);
     }
     await ctx.db.patch("examAttempts", args.attemptId, {
       status: "submitted",

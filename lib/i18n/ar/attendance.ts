@@ -44,4 +44,8 @@ export const attendance = {
   noLessonsBody: "لم تُسجَّل أي حصص لهذا الفصل ضمن النطاق المحدَّد.",
   noRecordsTitle: "لا يوجد حضور مُسجَّل",
   noRecordsBody: "لا توجد سجلات حضور لهذا الطالب ضمن النطاق المحدَّد.",
+
+  // M15 — CSV export
+  exportCsv: "تصدير CSV",
+  csvFileName: "سجل الحضور {from} - {to}",
 } as const;

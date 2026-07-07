@@ -122,15 +122,17 @@ function computeFinalPct(
 }
 
 /**
- * Whether the exam references ≥1 essay question — early-exit probe (same as
- * attempts.ts). Only consulted for submitted-but-unstamped attempts, where
- * "essay pending grading" must exclude the score as non-final.
+ * Whether a question set references ≥1 essay question — early-exit probe
+ * (same as attempts.ts). Only consulted for submitted-but-unstamped
+ * attempts, where "essay pending grading" must exclude the score as
+ * non-final. M15: callers pass attempt.questionSet ?? exam.questions so
+ * versioned attempts probe their OWN sampled set.
  */
 async function examHasEssayProbe(
   ctx: QueryCtx,
-  exam: Doc<"exams">,
+  questionSet: Array<{ questionId: Id<"questions"> }>,
 ): Promise<boolean> {
-  for (const examQuestion of exam.questions) {
+  for (const examQuestion of questionSet) {
     const question = await ctx.db.get("questions", examQuestion.questionId);
     if (question?.type === "essay") return true;
   }
@@ -325,10 +327,11 @@ export const computeForStudent = internalMutation({
         ) {
           continue;
         }
-        // Essay exams: the score is only final once grading is stamped.
+        // Essay attempts: the score is only final once grading is stamped.
+        // M15: the attempt's own question set decides (versioned exams).
         if (
           attempt.gradedAt === undefined &&
-          (await examHasEssayProbe(ctx, exam))
+          (await examHasEssayProbe(ctx, attempt.questionSet ?? exam.questions))
         ) {
           continue;
         }

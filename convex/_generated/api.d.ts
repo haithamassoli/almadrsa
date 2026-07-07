@@ -9,6 +9,7 @@
  */
 
 import type * as academics from "../academics.js";
+import type * as admin from "../admin.js";
 import type * as analytics from "../analytics.js";
 import type * as announcements from "../announcements.js";
 import type * as app from "../app.js";
@@ -16,6 +17,7 @@ import type * as attempts from "../attempts.js";
 import type * as attendance from "../attendance.js";
 import type * as auth from "../auth.js";
 import type * as calendar from "../calendar.js";
+import type * as channelActions from "../channelActions.js";
 import type * as checkin from "../checkin.js";
 import type * as codes from "../codes.js";
 import type * as events from "../events.js";
@@ -26,6 +28,7 @@ import type * as homework from "../homework.js";
 import type * as http from "../http.js";
 import type * as lessons from "../lessons.js";
 import type * as lib_audit from "../lib/audit.js";
+import type * as lib_channels from "../lib/channels.js";
 import type * as lib_crypto from "../lib/crypto.js";
 import type * as lib_dates from "../lib/dates.js";
 import type * as lib_grading from "../lib/grading.js";
@@ -55,6 +58,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   academics: typeof academics;
+  admin: typeof admin;
   analytics: typeof analytics;
   announcements: typeof announcements;
   app: typeof app;
@@ -62,6 +66,7 @@ declare const fullApi: ApiFromModules<{
   attendance: typeof attendance;
   auth: typeof auth;
   calendar: typeof calendar;
+  channelActions: typeof channelActions;
   checkin: typeof checkin;
   codes: typeof codes;
   events: typeof events;
@@ -72,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   lessons: typeof lessons;
   "lib/audit": typeof lib_audit;
+  "lib/channels": typeof lib_channels;
   "lib/crypto": typeof lib_crypto;
   "lib/dates": typeof lib_dates;
   "lib/grading": typeof lib_grading;

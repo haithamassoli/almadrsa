@@ -7,6 +7,7 @@ import { schoolStandings } from "./gamification";
 import {
   hasEssay,
   isAnswerCorrect,
+  questionSetOf,
   round2,
   sumManualScores,
 } from "./lib/grading";
@@ -80,14 +81,15 @@ type ExamStat = {
 
 /**
  * One exam's effective stats over its attempts (take 200 — the class roster
- * cap, and one attempt per student is enforced at start).
+ * cap, and one attempt per student is enforced at start). M15: essay-ness
+ * gates finality PER ATTEMPT (versioned attempts carry their own sets); the
+ * doc cache shares bank loads across attempts of the exam.
  */
 async function examEffectiveStat(
   ctx: QueryCtx,
   exam: Doc<"exams">,
 ): Promise<ExamStat> {
-  const questionDocs = await loadQuestionDocs(ctx, exam.questions);
-  const examHasEssay = hasEssay(exam.questions, questionDocs);
+  const questionDocCache = new Map<string, Doc<"questions">>();
   const attempts = await ctx.db
     .query("examAttempts")
     .withIndex("by_examId", (q) => q.eq("examId", exam._id))
@@ -97,7 +99,15 @@ async function examEffectiveStat(
   for (const attempt of attempts) {
     if (attempt.status !== "submitted") continue;
     submitted++;
-    if (examHasEssay && attempt.gradedAt === undefined) continue; // not final
+    if (attempt.gradedAt === undefined) {
+      const questionSet = questionSetOf(attempt, exam);
+      const questionDocs = await loadQuestionDocs(
+        ctx,
+        questionSet,
+        questionDocCache,
+      );
+      if (hasEssay(questionSet, questionDocs)) continue; // not final
+    }
     scores.push(
       attempt.overrideScore ??
         round2(
@@ -293,15 +303,23 @@ export const weakTopics = query({
       .slice(0, 10);
 
     const tally = new Map<string, { correct: number; total: number }>();
+    // M15: tallies walk each ATTEMPT'S question set (versioned attempts
+    // sample their own); one doc cache spans all exams of the subject.
+    const questionDocCache = new Map<string, Doc<"questions">>();
     for (const exam of exams) {
-      const questionDocs = await loadQuestionDocs(ctx, exam.questions);
       const attempts = await ctx.db
         .query("examAttempts")
         .withIndex("by_examId", (q) => q.eq("examId", exam._id))
         .take(200);
       for (const attempt of attempts) {
         if (attempt.status !== "submitted") continue;
-        for (const examQuestion of exam.questions) {
+        const questionSet = questionSetOf(attempt, exam);
+        const questionDocs = await loadQuestionDocs(
+          ctx,
+          questionSet,
+          questionDocCache,
+        );
+        for (const examQuestion of questionSet) {
           const question = questionDocs.get(examQuestion.questionId);
           // Essays are manually graded (no auto-correctness) and untagged
           // questions have no topic to attribute — both excluded.

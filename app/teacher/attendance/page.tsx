@@ -2,7 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
-import { ArrowLeft, CalendarRange, ClipboardList, Inbox } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarRange,
+  ClipboardList,
+  Download,
+  Inbox,
+} from "lucide-react";
 import Link from "next/link";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -35,6 +41,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { downloadCsv, toCsv } from "@/lib/csv";
 import { formatDate, formatNumber, t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -214,6 +221,31 @@ function ByClassTab({
     classId ? { classId, from, to } : "skip",
   );
 
+  // M15 — download the visible lesson rows as an Excel-safe (BOM) CSV file.
+  function exportAttendanceCsv() {
+    if (lessons === undefined) return;
+    const csv = toCsv(
+      lessons.map((lesson) => ({
+        date: lesson.date,
+        period: lesson.period,
+        subject: lesson.subjectName,
+        // Unrecorded lessons export empty cells, not misleading zeros.
+        present: lesson.total === 0 ? "" : lesson.present,
+        late: lesson.total === 0 ? "" : lesson.late,
+        absent: lesson.total === 0 ? "" : lesson.absent,
+      })),
+      [
+        { key: "date", label: t("attendance.colDate") },
+        { key: "period", label: t("attendance.colPeriod") },
+        { key: "subject", label: t("attendance.colSubject") },
+        { key: "present", label: t("attendance.colPresent") },
+        { key: "late", label: t("attendance.colLate") },
+        { key: "absent", label: t("attendance.colAbsent") },
+      ],
+    );
+    downloadCsv(`${t("attendance.csvFileName", { from, to })}.csv`, csv);
+  }
+
   if (!classId) {
     return (
       <CenteredEmpty
@@ -253,76 +285,84 @@ function ByClassTab({
           body={t("attendance.noLessonsBody")}
         />
       ) : (
-        <div className="overflow-x-auto rounded-xl border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("attendance.colDate")}</TableHead>
-                <TableHead>{t("attendance.colPeriod")}</TableHead>
-                <TableHead>{t("attendance.colSubject")}</TableHead>
-                <TableHead className="text-center">
-                  {t("attendance.colPresent")}
-                </TableHead>
-                <TableHead className="text-center">
-                  {t("attendance.colLate")}
-                </TableHead>
-                <TableHead className="text-center">
-                  {t("attendance.colAbsent")}
-                </TableHead>
-                <TableHead className="w-12 text-end">
-                  <span className="sr-only">{t("attendance.openLesson")}</span>
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {lessons.map((lesson) => (
-                <TableRow key={lesson._id}>
-                  <TableCell className="font-medium whitespace-nowrap">
-                    {formatDate(dateKeyMs(lesson.date))}
-                  </TableCell>
-                  <TableCell className="tabular-nums">
-                    {formatNumber(lesson.period)}
-                  </TableCell>
-                  <TableCell>{lesson.subjectName}</TableCell>
-                  {lesson.total === 0 ? (
-                    <TableCell
-                      colSpan={3}
-                      className="text-center text-muted-foreground"
-                    >
-                      {t("attendance.notRecorded")}
-                    </TableCell>
-                  ) : (
-                    <>
-                      <TableCell className="text-center font-semibold tabular-nums text-success">
-                        {formatNumber(lesson.present)}
-                      </TableCell>
-                      <TableCell className="text-center font-semibold tabular-nums text-accent-foreground">
-                        {formatNumber(lesson.late)}
-                      </TableCell>
-                      <TableCell className="text-center font-semibold tabular-nums text-destructive">
-                        {formatNumber(lesson.absent)}
-                      </TableCell>
-                    </>
-                  )}
-                  <TableCell className="text-end">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      render={
-                        <Link
-                          href={`/teacher/lessons/${lesson._id}`}
-                          aria-label={t("attendance.openLesson")}
-                        />
-                      }
-                    >
-                      <ArrowLeft />
-                    </Button>
-                  </TableCell>
+        <>
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={exportAttendanceCsv}>
+              <Download />
+              {t("attendance.exportCsv")}
+            </Button>
+          </div>
+          <div className="overflow-x-auto rounded-xl border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("attendance.colDate")}</TableHead>
+                  <TableHead>{t("attendance.colPeriod")}</TableHead>
+                  <TableHead>{t("attendance.colSubject")}</TableHead>
+                  <TableHead className="text-center">
+                    {t("attendance.colPresent")}
+                  </TableHead>
+                  <TableHead className="text-center">
+                    {t("attendance.colLate")}
+                  </TableHead>
+                  <TableHead className="text-center">
+                    {t("attendance.colAbsent")}
+                  </TableHead>
+                  <TableHead className="w-12 text-end">
+                    <span className="sr-only">{t("attendance.openLesson")}</span>
+                  </TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+              </TableHeader>
+              <TableBody>
+                {lessons.map((lesson) => (
+                  <TableRow key={lesson._id}>
+                    <TableCell className="font-medium whitespace-nowrap">
+                      {formatDate(dateKeyMs(lesson.date))}
+                    </TableCell>
+                    <TableCell className="tabular-nums">
+                      {formatNumber(lesson.period)}
+                    </TableCell>
+                    <TableCell>{lesson.subjectName}</TableCell>
+                    {lesson.total === 0 ? (
+                      <TableCell
+                        colSpan={3}
+                        className="text-center text-muted-foreground"
+                      >
+                        {t("attendance.notRecorded")}
+                      </TableCell>
+                    ) : (
+                      <>
+                        <TableCell className="text-center font-semibold tabular-nums text-success">
+                          {formatNumber(lesson.present)}
+                        </TableCell>
+                        <TableCell className="text-center font-semibold tabular-nums text-accent-foreground">
+                          {formatNumber(lesson.late)}
+                        </TableCell>
+                        <TableCell className="text-center font-semibold tabular-nums text-destructive">
+                          {formatNumber(lesson.absent)}
+                        </TableCell>
+                      </>
+                    )}
+                    <TableCell className="text-end">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        render={
+                          <Link
+                            href={`/teacher/lessons/${lesson._id}`}
+                            aria-label={t("attendance.openLesson")}
+                          />
+                        }
+                      >
+                        <ArrowLeft />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </>
       )}
     </div>
   );
