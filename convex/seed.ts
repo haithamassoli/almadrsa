@@ -1,0 +1,166 @@
+import { v } from "convex/values";
+import { internalAction, internalMutation } from "./_generated/server";
+import { components } from "./_generated/api";
+import { createAuth } from "./auth";
+import { issueCodeCore } from "./codes";
+import { staffRole } from "./lib/validators";
+
+// Bootstrap staff accounts from the CLI (never exposed publicly):
+//   npx convex run seed:createStaff '{"email":"...","password":"...","name":"...","role":"admin"}'
+export const createStaff = internalAction({
+  args: {
+    email: v.string(),
+    password: v.string(),
+    name: v.string(),
+    role: staffRole,
+  },
+  returns: v.object({ userId: v.string() }),
+  handler: async (ctx, args) => {
+    const auth = createAuth(ctx);
+    const created = await auth.api.createUser({
+      body: {
+        email: args.email,
+        password: args.password,
+        name: args.name,
+        // Better Auth types roles as "admin" | "user"; runtime accepts any
+        // string and our defaultRole/adminRoles config uses admin | teacher.
+        role: args.role as "admin",
+      },
+    });
+    return { userId: created.user.id };
+  },
+});
+
+// ————————————————————————————————————————————————————————————————————————
+// Demo data — grade 4 with one class, one active term, 3 subjects, the
+// seeded teacher assigned to all of them, and 8 enrolled students.
+//   npx convex run seed:seedDemo '{}'
+// Deliberately does NOT issue access codes: plaintext codes must only ever
+// come out of codes.issueCode.
+// ————————————————————————————————————————————————————————————————————————
+
+const DEMO_GRADE_NAME = "الصف الرابع";
+const DEMO_GRADE_ORDER = 4;
+const DEMO_CLASS_NAME = "الصف الرابع — أ";
+const DEMO_TERM_NAME = "الفصل الأول ٢٠٢٦/٢٠٢٧";
+const DEMO_SUBJECTS = ["التربية الإسلامية", "اللغة العربية", "الرياضيات"];
+const DEMO_TEACHER_EMAIL = "teacher@almadrasa.dev";
+const DEMO_STUDENTS: Array<{ firstName: string; lastName: string }> = [
+  { firstName: "أحمد", lastName: "الخطيب" },
+  { firstName: "محمد", lastName: "العمري" },
+  { firstName: "يوسف", lastName: "الحموي" },
+  { firstName: "عمر", lastName: "النابلسي" },
+  { firstName: "ليان", lastName: "الشامي" },
+  { firstName: "سارة", lastName: "الحلبي" },
+  { firstName: "مريم", lastName: "القاسم" },
+  { firstName: "نور", lastName: "الدمشقي" },
+];
+
+export const seedDemo = internalMutation({
+  args: {
+    // Normally resolved from the Better Auth user table by email; pass
+    // explicitly if the seeded teacher account has a different email.
+    teacherId: v.optional(v.string()),
+  },
+  returns: v.object({
+    skipped: v.boolean(),
+    teacherResolved: v.boolean(),
+    students: v.number(),
+    subjects: v.number(),
+    assignments: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    // Idempotent-ish: skip when the demo grade already exists.
+    const gradesAtOrder = await ctx.db
+      .query("grades")
+      .withIndex("by_order", (q) => q.eq("order", DEMO_GRADE_ORDER))
+      .take(10);
+    if (gradesAtOrder.some((grade) => grade.name === DEMO_GRADE_NAME)) {
+      return {
+        skipped: true,
+        teacherResolved: false,
+        students: 0,
+        subjects: 0,
+        assignments: 0,
+      };
+    }
+
+    // Resolve the seeded teacher's Better Auth user id by email.
+    let teacherId = args.teacherId;
+    if (teacherId === undefined) {
+      const teacher: { _id: string; userId?: string | null } | null =
+        await ctx.runQuery(components.betterAuth.adapter.findOne, {
+          model: "user",
+          where: [{ field: "email", value: DEMO_TEACHER_EMAIL }],
+        });
+      if (teacher) teacherId = teacher.userId ?? teacher._id;
+    }
+
+    const gradeId = await ctx.db.insert("grades", {
+      name: DEMO_GRADE_NAME,
+      order: DEMO_GRADE_ORDER,
+    });
+    const classId = await ctx.db.insert("classes", {
+      name: DEMO_CLASS_NAME,
+      gradeId,
+    });
+    await ctx.db.insert("terms", {
+      name: DEMO_TERM_NAME,
+      startDate: Date.UTC(2026, 8, 1), // 2026-09-01
+      endDate: Date.UTC(2027, 0, 31), // 2027-01-31
+      active: true,
+    });
+
+    const subjectIds = [];
+    for (const name of DEMO_SUBJECTS) {
+      subjectIds.push(await ctx.db.insert("subjects", { name, gradeId }));
+    }
+
+    let assignments = 0;
+    if (teacherId !== undefined) {
+      for (const subjectId of subjectIds) {
+        await ctx.db.insert("teacherAssignments", {
+          teacherId,
+          subjectId,
+          classId,
+        });
+        assignments++;
+      }
+    }
+
+    for (const student of DEMO_STUDENTS) {
+      const studentId = await ctx.db.insert("students", {
+        firstName: student.firstName,
+        lastName: student.lastName,
+        status: "active",
+      });
+      await ctx.db.insert("enrollments", { studentId, classId, active: true });
+    }
+
+    return {
+      skipped: false,
+      teacherResolved: teacherId !== undefined,
+      students: DEMO_STUDENTS.length,
+      subjects: subjectIds.length,
+      assignments,
+    };
+  },
+});
+
+/**
+ * Dev/CLI-only helper (internal — unreachable from clients): issue a code for
+ * a student through the SAME core path as api.codes.issueCode, without a
+ * staff session. Lets local smoke tests exercise the student login flow.
+ *   npx convex run seed:devIssueCode '{"studentId":"..."}'
+ */
+export const devIssueCode = internalMutation({
+  args: { studentId: v.id("students") },
+  returns: v.object({ code: v.string() }),
+  handler: async (ctx, args) => {
+    const code = await issueCodeCore(ctx, args.studentId, "system", {
+      actorType: "system",
+      actorId: "system",
+    });
+    return { code };
+  },
+});

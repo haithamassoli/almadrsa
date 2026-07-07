@@ -1,0 +1,21 @@
+export const nav = {
+  // Shell chrome
+  openMenu: "فتح القائمة",
+  menu: "القائمة",
+  // Admin navigation
+  dashboard: "لوحة التحكم",
+  structure: "الهيكل الأكاديمي",
+  students: "الطلاب",
+  codes: "رموز الدخول",
+  staff: "الطاقم",
+  weights: "أوزان الدرجات",
+  // Teacher navigation
+  teacherHome: "الرئيسية",
+  // Dashboard landing copy
+  greeting: "أهلًا، {name}",
+  adminHomeTitle: "لوحة تحكم المدرسة",
+  adminHomeBody:
+    "من هنا تُدير الهيكل الأكاديمي والطلاب ورموز الدخول والطاقم وأوزان الدرجات.",
+  comingSoon: "قريبًا",
+  teacherHomeBody: "مساحة المعلّم قيد الإعداد، وستتوفّر أدواتك هنا قريبًا.",
+} as const;

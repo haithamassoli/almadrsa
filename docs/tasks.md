@@ -7,23 +7,23 @@ Source: [eduschool-prd.md](./eduschool-prd.md). Milestones are dependency-ordere
 ### M0 — Scaffold
 Ships: empty app, deployed, with the conventions every later milestone inherits.
 
-- [ ] Next.js (App Router) + Convex wired; one live query round-trips
-- [ ] Tailwind with RTL (dir="rtl", logical properties), dark mode, base app shell/layout
-- [ ] i18n layer; all UI strings in an Arabic locale file (only shipped locale)
-- [ ] Convex schema stub with core tables + shared validators
-- [ ] Deploy pipeline: Vercel previews, Convex dev/prod environments
+- [x] Next.js (App Router) + Convex wired; one live query round-trips
+- [x] Tailwind with RTL (dir="rtl", logical properties), dark mode, base app shell/layout
+- [x] i18n layer; all UI strings in an Arabic locale file (only shipped locale)
+- [x] Convex schema stub with core tables + shared validators
+- [x] Deploy pipeline: Vercel previews, Convex dev/prod environments (Vercel account link = manual step, see docs/deploy.md)
 
 ### M1 — Auth & access control
 Ships: staff log in with email/password, a student/parent logs in with a code; every server function has role guards to build on.
 
-- [ ] Convex Auth email+password for staff; `role: admin | teacher`
-- [ ] Server auth helpers (`requireAdmin`, `requireTeacher`, `requireStudentAccount`) — mandatory in every function from here on
-- [ ] Access codes: ≥128-bit crypto-random, hash-only storage, active/revoked status
-- [ ] Code login flow; admin/teacher regenerate + revoke instantly
-- [ ] Rate limiting on code attempts (per-IP + global)
-- [ ] Optional PIN on first login from new device + "remember this device"
-- [ ] `auditLog` table + helper; log every code login and code regeneration
-- [ ] Login screens (staff, code entry), Arabic RTL, mobile-first
+- [x] Convex Auth email+password for staff; `role: admin | teacher`
+- [x] Server auth helpers (`requireAdmin`, `requireTeacher`, `requireStudentAccount`) — mandatory in every function from here on
+- [x] Access codes: ≥128-bit crypto-random, hash-only storage, active/revoked status
+- [x] Code login flow; admin/teacher regenerate + revoke instantly
+- [x] Rate limiting on code attempts (per-IP + global)
+- [x] Optional PIN on first login from new device + "remember this device"
+- [x] `auditLog` table + helper; log every code login and code regeneration
+- [x] Login screens (staff, code entry), Arabic RTL, mobile-first
 
 ### M2 — Academic structure & people
 Ships: admin sets up the whole school; every student has a code.
