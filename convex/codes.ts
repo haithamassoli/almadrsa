@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   mutation,
   query,
@@ -118,6 +118,10 @@ export async function issueCodeCore(
 ): Promise<string> {
   const student = await ctx.db.get("students", studentId);
   if (!student) throw new Error("Student not found");
+  // An archived student's login is always rejected downstream, so a code
+  // issued here would be a dead credential staff keep reprinting. Refuse it.
+  // (Bulk class paths already skip non-active students.)
+  if (student.status !== "active") throw new ConvexError("student_archived");
 
   const revokedCodeIds = await revokeActiveCodes(ctx, studentId);
 

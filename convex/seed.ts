@@ -108,11 +108,17 @@ export const seedDemo = internalMutation({
       name: DEMO_CLASS_NAME,
       gradeId,
     });
+    // Only claim "active" if nothing else already holds it — the app enforces
+    // exactly one active term (see academics.setActiveTerm).
+    const existingActiveTerm = await ctx.db
+      .query("terms")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .first();
     await ctx.db.insert("terms", {
       name: DEMO_TERM_NAME,
       startDate: Date.UTC(2026, 8, 1), // 2026-09-01
       endDate: Date.UTC(2027, 0, 31), // 2027-01-31
-      active: true,
+      active: existingActiveTerm === null,
     });
 
     const subjectIds = [];

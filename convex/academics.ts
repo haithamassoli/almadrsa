@@ -331,6 +331,20 @@ export const deleteClass = mutation({
       if (assignments.length < 200) break;
     }
 
+    // Inactive (historical) enrollments are subordinate too — cascade them so
+    // no enrollment row is left pointing at a deleted class. (Active ones
+    // already blocked deletion above.)
+    for (;;) {
+      const stale = await ctx.db
+        .query("enrollments")
+        .withIndex("by_classId_and_active", (q) => q.eq("classId", args.classId))
+        .take(200);
+      for (const row of stale) {
+        await ctx.db.delete("enrollments", row._id);
+      }
+      if (stale.length < 200) break;
+    }
+
     await ctx.db.delete("classes", args.classId);
     await logAudit(ctx, {
       actorType: "staff",
@@ -443,14 +457,20 @@ export const setActiveTerm = mutation({
     const target = await ctx.db.get("terms", args.termId);
     if (!target) throw new ConvexError("term_not_found");
 
-    // Exactly one active term: flip everyone else off, this one on. Terms
-    // are a small set (≤100); patch only rows whose flag actually changes.
-    const terms = await ctx.db.query("terms").take(100);
-    for (const term of terms) {
-      const active = term._id === args.termId;
-      if (term.active !== active) {
-        await ctx.db.patch("terms", term._id, { active });
+    // Exactly one active term. Deactivate the currently-active ones via the
+    // by_active index (not a full-table scan, so the invariant holds at any
+    // table size), then activate the target.
+    const actives = await ctx.db
+      .query("terms")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .take(20);
+    for (const term of actives) {
+      if (term._id !== args.termId) {
+        await ctx.db.patch("terms", term._id, { active: false });
       }
+    }
+    if (!target.active) {
+      await ctx.db.patch("terms", args.termId, { active: true });
     }
     await logAudit(ctx, {
       actorType: "staff",
