@@ -14,7 +14,10 @@ export function RegisterSW() {
     ) {
       return;
     }
-    navigator.serviceWorker.register("/sw.js", { type: "module" });
+    // Swallow rejections: register() throws on browsers without module-SW
+    // support (or a bad deploy) — degrade to no-PWA instead of an unhandled
+    // rejection. Nothing downstream depends on the registration resolving.
+    navigator.serviceWorker.register("/sw.js", { type: "module" }).catch(() => {});
   }, []);
 
   return null;
