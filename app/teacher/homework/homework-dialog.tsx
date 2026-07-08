@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import { t } from "@/lib/i18n";
+import { msToLocalInput, t } from "@/lib/i18n";
 import { mutationErrorText } from "./errors";
 
 export type HomeworkStatus = "open" | "closed";
@@ -54,15 +54,6 @@ export function HomeworkStatusBadge({ status }: { status: HomeworkStatus }) {
   ) : (
     <Badge variant="outline">{t("homework.statusClosed")}</Badge>
   );
-}
-
-/** ms → <input type="datetime-local"> value (local wall time, minutes). */
-function msToLocalInput(ms: number): string {
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-    d.getHours(),
-  )}:${pad(d.getMinutes())}`;
 }
 
 /**

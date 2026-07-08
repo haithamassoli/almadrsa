@@ -612,31 +612,6 @@ export const deleteAssignment = mutation({
 
 // ——— Grade weights ———
 
-export const getWeights = query({
-  args: { subjectId: v.id("subjects") },
-  returns: v.union(
-    v.null(),
-    v.object({
-      examsPct: v.number(),
-      homeworkPct: v.number(),
-      participationPct: v.number(),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    await requireTeacher(ctx);
-    const weights = await ctx.db
-      .query("gradeWeights")
-      .withIndex("by_subjectId", (q) => q.eq("subjectId", args.subjectId))
-      .first();
-    if (!weights) return null;
-    return {
-      examsPct: weights.examsPct,
-      homeworkPct: weights.homeworkPct,
-      participationPct: weights.participationPct,
-    };
-  },
-});
-
 export const setWeights = mutation({
   args: {
     subjectId: v.id("subjects"),

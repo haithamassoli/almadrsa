@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
 import { Send } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -11,31 +10,16 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDateTime, t } from "@/lib/i18n";
+import { makeErrors } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
 const MAX_MESSAGE_LENGTH = 2000;
 
-/**
- * Backend machine codes (ConvexError data) → Arabic messages
- * (convex/messages.ts throws `invalid_message` and `not_found`). Inlined
- * instead of a colocated errors.ts so this shared component pulls nothing
- * from a page directory — it serves /teacher/messages and the portal alike.
- */
-const ERROR_KEYS = {
+// convex/messages.ts throws `invalid_message` and `not_found`.
+const { mutationErrorText } = makeErrors({
   invalid_message: "messagesUi.errInvalidMessage",
   not_found: "messagesUi.errNotFound",
-} as const;
-
-function mutationErrorText(error: unknown): string {
-  if (
-    error instanceof ConvexError &&
-    typeof error.data === "string" &&
-    error.data in ERROR_KEYS
-  ) {
-    return t(ERROR_KEYS[error.data as keyof typeof ERROR_KEYS]);
-  }
-  return t("common.errorGeneric");
-}
+});
 
 type ThreadViewProps = {
   threadId: Id<"threads">;

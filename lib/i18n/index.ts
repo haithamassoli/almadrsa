@@ -2,7 +2,6 @@ import { ar } from "./ar";
 
 // Arabic is the only shipped locale; every UI string flows through t() so a
 // second locale later is a new dictionary, not a rewrite.
-export const locale = "ar" as const;
 
 type Join<K, P> = K extends string
   ? P extends string
@@ -52,4 +51,13 @@ export function formatDateTime(ms: number): string {
 }
 export function formatNumber(n: number): string {
   return numberFormat.format(n);
+}
+
+/** ms → `<input type="datetime-local">` value (local wall time, minutes). */
+export function msToLocalInput(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours(),
+  )}:${pad(d.getMinutes())}`;
 }

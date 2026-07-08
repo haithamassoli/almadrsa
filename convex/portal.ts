@@ -10,11 +10,10 @@ import { staffNamesById } from "./notes";
 import { loadQuestionDocs } from "./exams";
 import { weekdayOf } from "./lib/dates";
 import {
+  effectiveScore,
   hasEssay,
   isAnswerCorrect,
   questionSetOf,
-  round2,
-  sumManualScores,
 } from "./lib/grading";
 import { attendanceStatus, type AttendanceStatus } from "./lib/validators";
 
@@ -324,12 +323,7 @@ export const examClassStats = query({
         );
         if (hasEssay(questionSet, questionDocs)) return undefined;
       }
-      return (
-        attempt.overrideScore ??
-        round2(
-          (attempt.autoScore ?? 0) + sumManualScores(attempt.manualScores),
-        )
-      );
+      return effectiveScore(attempt);
     };
 
     const myScore = await effectiveOf(myAttempt);
@@ -452,11 +446,7 @@ export const studentAnalytics = query({
           continue; // essay attempt still being graded — score not final
         }
       }
-      const effective =
-        attempt.overrideScore ??
-        round2(
-          (attempt.autoScore ?? 0) + sumManualScores(attempt.manualScores),
-        );
+      const effective = effectiveScore(attempt);
       graded.push({
         attempt,
         exam,
@@ -494,9 +484,7 @@ export const studentAnalytics = query({
           const rowSet = questionSetOf(row, entry.exam);
           if (hasEssay(rowSet, await docsOf(rowSet))) continue;
         }
-        const effective =
-          row.overrideScore ??
-          round2((row.autoScore ?? 0) + sumManualScores(row.manualScores));
+        const effective = effectiveScore(row);
         pcts.push((effective / row.maxScore) * 100);
       }
       const avg =

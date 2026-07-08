@@ -202,3 +202,21 @@ export function sumManualScores(
   }
   return sum;
 }
+
+/**
+ * An attempt's effective score: the teacher override if set, else auto-score
+ * plus merged essay marks. THE single source of this money-math — every place
+ * that reports/aggregates a final attempt score routes through here. (Callers
+ * still gate on "is the score final" — essay attempts awaiting grading — before
+ * treating the result as final.)
+ */
+export function effectiveScore(attempt: {
+  overrideScore?: number;
+  autoScore?: number;
+  manualScores?: Record<string, number>;
+}): number {
+  return (
+    attempt.overrideScore ??
+    round2((attempt.autoScore ?? 0) + sumManualScores(attempt.manualScores))
+  );
+}

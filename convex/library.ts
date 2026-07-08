@@ -3,6 +3,7 @@ import { mutation, query, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireTeacher, type StaffUser } from "./auth";
 import { logAudit } from "./lib/audit";
+import { cachedName } from "./lib/joins";
 import { assertStaffCanAccessClass } from "./students";
 import { requireStudentAccount } from "./studentAuth";
 
@@ -107,23 +108,6 @@ function normalizeResourceInput(input: { title: string; url: string }): {
     throw new ConvexError("invalid_resource");
   }
   return { title, url };
-}
-
-/** Cached class/subject name lookups for bounded join loops. */
-async function cachedName<Table extends "classes" | "subjects">(
-  ctx: QueryCtx,
-  table: Table,
-  id: Id<Table>,
-  cache: Map<Id<Table>, string>,
-): Promise<string> {
-  const cached = cache.get(id);
-  if (cached !== undefined) return cached;
-  // Classes and subjects both carry `name: string`; TS cannot reduce the
-  // generic indexed access to that, hence the contained cast.
-  const doc = (await ctx.db.get(table, id)) as { name: string } | null;
-  const name = doc?.name ?? "";
-  cache.set(id, name);
-  return name;
 }
 
 // ——— Staff queries ———

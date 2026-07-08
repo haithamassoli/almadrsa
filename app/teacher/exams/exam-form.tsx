@@ -23,7 +23,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import { formatNumber, t, type MessageKey } from "@/lib/i18n";
+import { formatNumber, msToLocalInput, t, type MessageKey } from "@/lib/i18n";
 import { mutationErrorText } from "./errors";
 
 export type ExamStatus = "draft" | "published" | "closed";
@@ -133,15 +133,6 @@ const DIFFICULTY_CLASS: Record<Difficulty, string> = {
 };
 
 const ALL = "all";
-
-/** ms → <input type="datetime-local"> value (local wall time, minutes). */
-function msToLocalInput(ms: number): string {
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-    d.getHours(),
-  )}:${pad(d.getMinutes())}`;
-}
 
 // ——— M15: version-rule drafts (unique per-student exams) ———
 

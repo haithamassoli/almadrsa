@@ -12,11 +12,10 @@ import { loadQuestionDocs, loadSubjectBank, ruleMatches } from "./exams";
 import { awardForExam } from "./gamification";
 import { logAudit } from "./lib/audit";
 import {
+  effectiveScore,
   gradeAnswers,
   hasEssay,
   questionSetOf,
-  round2,
-  sumManualScores,
   type StoredAnswer,
 } from "./lib/grading";
 import { notifyStudents } from "./lib/notify";
@@ -196,12 +195,7 @@ export const listForStudent = query({
           if (attempt.gradedAt !== undefined) {
             // Essay exam, fully graded → combined total (override wins).
             state = "submitted";
-            score =
-              attempt.overrideScore ??
-              round2(
-                (attempt.autoScore ?? 0) +
-                  sumManualScores(attempt.manualScores),
-              );
+            score = effectiveScore(attempt);
           } else if (await probeHasEssay(ctx, questionSetOf(attempt, exam))) {
             // Essay attempt awaiting manual grading — no score yet.
             state = "pending_grading";
@@ -485,12 +479,7 @@ export const getAttempt = query({
       answers,
       autoScore: pending ? undefined : attempt.autoScore,
       overrideScore: pending ? undefined : attempt.overrideScore,
-      totalScore: finalScoreKnown
-        ? (attempt.overrideScore ??
-          round2(
-            (attempt.autoScore ?? 0) + sumManualScores(attempt.manualScores),
-          ))
-        : undefined,
+      totalScore: finalScoreKnown ? effectiveScore(attempt) : undefined,
       gradingPending: pending,
       maxScore: attempt.maxScore,
       totalMarks: attempt.maxScore,

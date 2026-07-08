@@ -1,36 +1,19 @@
-import { ConvexError } from "convex/values";
-import { t } from "@/lib/i18n";
+import { makeErrors } from "@/lib/errors";
 
-/** Map ConvexError rejection codes from convex/academics.ts to Arabic copy. */
-export function structureError(err: unknown): string {
-  const code =
-    err instanceof ConvexError && typeof err.data === "string" ? err.data : "";
-  switch (code) {
-    case "grade_not_empty":
-      return t("structure.errGradeNotEmpty");
-    case "subject_in_use":
-      return t("structure.errSubjectInUse");
-    case "class_not_empty":
-      return t("structure.errClassNotEmpty");
-    case "term_dates":
-      return t("structure.errTermDates");
-    case "term_is_active":
-      return t("structure.errTermIsActive");
-    case "assignment_duplicate":
-      return t("structure.errAssignmentDuplicate");
-    case "assignment_grade_mismatch":
-      return t("structure.errAssignmentGradeMismatch");
-    case "assignment_teacher_invalid":
-      return t("structure.errAssignmentTeacherInvalid");
-    case "grade_not_found":
-    case "subject_not_found":
-    case "class_not_found":
-    case "term_not_found":
-    case "assignment_not_found":
-      return t("structure.errNotFound");
-    case "invalid_input":
-      return t("structure.errInvalidInput");
-    default:
-      return t("common.errorGeneric");
-  }
-}
+/** ConvexError rejection codes from convex/academics.ts → Arabic copy. */
+export const structureError = makeErrors({
+  grade_not_empty: "structure.errGradeNotEmpty",
+  subject_in_use: "structure.errSubjectInUse",
+  class_not_empty: "structure.errClassNotEmpty",
+  term_dates: "structure.errTermDates",
+  term_is_active: "structure.errTermIsActive",
+  assignment_duplicate: "structure.errAssignmentDuplicate",
+  assignment_grade_mismatch: "structure.errAssignmentGradeMismatch",
+  assignment_teacher_invalid: "structure.errAssignmentTeacherInvalid",
+  grade_not_found: "structure.errNotFound",
+  subject_not_found: "structure.errNotFound",
+  class_not_found: "structure.errNotFound",
+  term_not_found: "structure.errNotFound",
+  assignment_not_found: "structure.errNotFound",
+  invalid_input: "structure.errInvalidInput",
+}).mutationErrorText;

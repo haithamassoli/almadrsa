@@ -5,11 +5,10 @@ import { requireAdmin, requireTeacher } from "./auth";
 import { loadQuestionDocs } from "./exams";
 import { schoolStandings } from "./gamification";
 import {
+  effectiveScore,
   hasEssay,
   isAnswerCorrect,
   questionSetOf,
-  round2,
-  sumManualScores,
 } from "./lib/grading";
 import { assertStaffCanAccessClass } from "./students";
 
@@ -108,12 +107,7 @@ async function examEffectiveStat(
       );
       if (hasEssay(questionSet, questionDocs)) continue; // not final
     }
-    scores.push(
-      attempt.overrideScore ??
-        round2(
-          (attempt.autoScore ?? 0) + sumManualScores(attempt.manualScores),
-        ),
-    );
+    scores.push(effectiveScore(attempt));
   }
   if (scores.length === 0) return { avg: null, avgPct: null, submitted };
   const avg = scores.reduce((sum, score) => sum + score, 0) / scores.length;

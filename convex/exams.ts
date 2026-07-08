@@ -12,6 +12,7 @@ import { requireTeacher, type StaffUser } from "./auth";
 import { awardForExam } from "./gamification";
 import { logAudit } from "./lib/audit";
 import {
+  effectiveScore,
   gradeAnswers,
   hasEssay,
   questionSetOf,
@@ -19,6 +20,7 @@ import {
   splitScores,
   sumManualScores,
 } from "./lib/grading";
+import { cachedName } from "./lib/joins";
 import { formatDateAr, notifyClass, notifyStudents } from "./lib/notify";
 import {
   attemptStatus,
@@ -374,23 +376,6 @@ async function closeSweep(
   }
 }
 
-/** Cached class/subject name lookups for bounded join loops. */
-async function cachedName<Table extends "classes" | "subjects">(
-  ctx: QueryCtx,
-  table: Table,
-  id: Id<Table>,
-  cache: Map<Id<Table>, string>,
-): Promise<string> {
-  const cached = cache.get(id);
-  if (cached !== undefined) return cached;
-  // Classes and subjects both carry `name: string`; TS cannot reduce the
-  // generic indexed access to that, hence the contained cast.
-  const doc = (await ctx.db.get(table, id)) as { name: string } | null;
-  const name = doc?.name ?? "";
-  cache.set(id, name);
-  return name;
-}
-
 // ——— Queries ———
 
 /**
@@ -653,11 +638,7 @@ export const results = query({
           const attemptHasEssay = hasEssay(questionSet, questionDocs);
           row.gradingPending =
             attemptHasEssay && attempt.gradedAt === undefined;
-          const effective =
-            attempt.overrideScore ??
-            round2(
-              (attempt.autoScore ?? 0) + sumManualScores(attempt.manualScores),
-            );
+          const effective = effectiveScore(attempt);
           row.effectiveScore = effective;
           // Stats only over final scores: fully graded or essay-free.
           if (!row.gradingPending) effectiveScores.push(effective);
