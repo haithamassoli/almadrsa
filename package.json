@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3000",
     "dev:backend": "convex dev",
     "build": "next build && serwist build serwist.config.mjs",
     "start": "next start",
