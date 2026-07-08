@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist_Mono } from "next/font/google";
 import { thmanyahSans } from "@/fonts";
 import { Providers } from "@/components/providers";
+import { RegisterSW } from "@/components/register-sw";
 import { getToken } from "@/lib/auth-server";
 import { t } from "@/lib/i18n";
 import "./globals.css";
@@ -40,6 +41,7 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col">
+        <RegisterSW />
         {/* Dark mode via next-themes (attribute="class"); it injects its own
             pre-paint no-flash script. */}
         <Providers initialToken={initialToken}>{children}</Providers>
