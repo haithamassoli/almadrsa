@@ -15,6 +15,7 @@ export const common = {
   print: "طباعة",
   retry: "إعادة المحاولة",
   requiredField: "هذا الحقل مطلوب",
+  invalidValue: "قيمة غير صالحة",
   errorGeneric: "حدث خطأ. حاول مرة أخرى.",
   connectedLive: "متصل مباشرة",
   connecting: "جارٍ الاتصال…",

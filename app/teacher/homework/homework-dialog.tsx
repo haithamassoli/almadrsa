@@ -3,8 +3,10 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { numberString, useAppForm } from "@/components/form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,17 +16,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
 import { msToLocalInput, t } from "@/lib/i18n";
 import { mutationErrorText } from "./errors";
 
@@ -109,17 +100,83 @@ function HomeworkForm({
     homework === null ? {} : "skip",
   );
 
-  const [classId, setClassId] = useState<string | null>(null);
-  const [subjectId, setSubjectId] = useState<string | null>(null);
-  const [title, setTitle] = useState(homework?.title ?? "");
-  const [description, setDescription] = useState(homework?.description ?? "");
   const initialDeadlineLocal =
     homework !== null ? msToLocalInput(homework.deadline) : "";
-  const [deadlineLocal, setDeadlineLocal] = useState(initialDeadlineLocal);
-  const [marks, setMarks] = useState(
-    homework !== null ? String(homework.marks) : "10",
-  );
-  const [pending, setPending] = useState(false);
+
+  // Frozen at form mount (the form remounts on every dialog open), so the
+  // native min stays "now" without an impure render-time call.
+  const [minDeadlineLocal] = useState(() => msToLocalInput(Date.now()));
+
+  const form = useAppForm({
+    defaultValues: {
+      classId: null as string | null,
+      subjectId: null as string | null,
+      title: homework?.title ?? "",
+      description: homework?.description ?? "",
+      deadlineLocal: initialDeadlineLocal,
+      marks: homework !== null ? String(homework.marks) : "10",
+    },
+    validators: {
+      onSubmit: z
+        .object({
+          classId: z.string().nullable(),
+          subjectId: z.string().nullable(),
+          title: z
+            .string()
+            .trim()
+            .min(1, t("common.requiredField"))
+            .max(200, t("common.invalidValue")),
+          description: z.string().max(4000, t("common.invalidValue")),
+          deadlineLocal: z.string().min(1, t("common.requiredField")),
+          marks: numberString({ int: true, min: 1, max: 100 }),
+        })
+        // Create mode needs a (class, subject); edit keeps the pairing fixed.
+        .refine((v) => homework !== null || (!!v.classId && !!v.subjectId), {
+          message: t("homework.errMissingClassSubject"),
+          path: ["subjectId"],
+        }),
+    },
+    onSubmit: async ({ value }) => {
+      // An unchanged edit-mode deadline is omitted from the payload so the
+      // stored ms (with seconds) is kept and never re-validated server-side.
+      const deadlineChanged = value.deadlineLocal !== initialDeadlineLocal;
+      const deadlineMs = new Date(value.deadlineLocal).getTime();
+      const mustCheckDeadline = homework === null || deadlineChanged;
+      if (
+        mustCheckDeadline &&
+        (!Number.isFinite(deadlineMs) || deadlineMs <= Date.now())
+      ) {
+        toast.error(t("homework.errDeadlinePast"));
+        return;
+      }
+      try {
+        if (homework === null) {
+          await createHomework({
+            classId: value.classId as Id<"classes">,
+            subjectId: value.subjectId as Id<"subjects">,
+            title: value.title.trim(),
+            description: value.description.trim() || undefined,
+            deadline: deadlineMs,
+            marks: Number(value.marks),
+          });
+          toast.success(t("homework.created"));
+        } else {
+          await updateHomework({
+            homeworkId: homework.homeworkId,
+            title: value.title.trim(),
+            // Always sent: whitespace-only clears the stored description.
+            description: value.description,
+            deadline: deadlineChanged ? deadlineMs : undefined,
+            marks: Number(value.marks),
+          });
+          toast.success(t("homework.updated"));
+        }
+        onOpenChange(false);
+      } catch (error) {
+        toast.error(mutationErrorText(error));
+      }
+    },
+  });
 
   const classItems = useMemo(
     () =>
@@ -129,131 +186,62 @@ function HomeworkForm({
       })),
     [classes],
   );
-  const subjectItems = useMemo(() => {
-    const cls = (classes ?? []).find((c) => c.classId === classId);
-    return (cls?.subjects ?? []).map((s) => ({
-      value: s.subjectId as string,
-      label: s.name,
-    }));
-  }, [classes, classId]);
-
-  function onClassChange(value: string | null) {
-    setClassId(value);
-    const next = (classes ?? []).find((c) => c.classId === value);
-    // Same-grade classes share subjects; otherwise the pick no longer applies.
-    if (!next?.subjects.some((s) => s.subjectId === subjectId)) {
-      setSubjectId(null);
-    }
-  }
-
-  // Frozen at form mount (the form remounts on every dialog open), so the
-  // native min stays "now" without an impure render-time call.
-  const [minDeadlineLocal] = useState(() => msToLocalInput(Date.now()));
-
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    if (homework === null && (classId === null || subjectId === null)) {
-      toast.error(t("homework.errMissingClassSubject"));
-      return;
-    }
-    // An unchanged edit-mode deadline is omitted from the payload so the
-    // stored ms (with seconds) is kept and never re-validated server-side.
-    const deadlineChanged = deadlineLocal !== initialDeadlineLocal;
-    const deadlineMs = new Date(deadlineLocal).getTime();
-    if (
-      deadlineChanged &&
-      (!Number.isFinite(deadlineMs) || deadlineMs <= Date.now())
-    ) {
-      toast.error(t("homework.errDeadlinePast"));
-      return;
-    }
-    setPending(true);
-    try {
-      if (homework === null) {
-        await createHomework({
-          classId: classId as Id<"classes">,
-          subjectId: subjectId as Id<"subjects">,
-          title: title.trim(),
-          description: description.trim() || undefined,
-          deadline: deadlineMs,
-          marks: Number(marks),
-        });
-        toast.success(t("homework.created"));
-      } else {
-        await updateHomework({
-          homeworkId: homework.homeworkId,
-          title: title.trim(),
-          // Always sent: whitespace-only clears the stored description.
-          description,
-          deadline: deadlineChanged ? deadlineMs : undefined,
-          marks: Number(marks),
-        });
-        toast.success(t("homework.updated"));
-      }
-      onOpenChange(false);
-    } catch (error) {
-      toast.error(mutationErrorText(error));
-    } finally {
-      setPending(false);
-    }
-  }
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4">
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.handleSubmit();
+      }}
+      className="flex flex-col gap-4"
+    >
       {homework === null ? (
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="flex flex-col gap-2">
-            <Label id="homework-class-label">{t("homework.fieldClass")}</Label>
-            <Select
-              items={classItems}
-              value={classId}
-              onValueChange={(value) =>
-                onClassChange((value as string | null) ?? null)
-              }
-              disabled={classes === undefined}
-            >
-              <SelectTrigger
-                className="w-full"
-                aria-labelledby="homework-class-label"
-              >
-                <SelectValue placeholder={t("homework.selectClass")} />
-              </SelectTrigger>
-              <SelectContent>
-                {classItems.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label id="homework-subject-label">
-              {t("homework.fieldSubject")}
-            </Label>
-            <Select
-              items={subjectItems}
-              value={subjectId}
-              onValueChange={(value) =>
-                setSubjectId((value as string | null) ?? null)
-              }
-              disabled={classId === null}
-            >
-              <SelectTrigger
-                className="w-full"
-                aria-labelledby="homework-subject-label"
-              >
-                <SelectValue placeholder={t("homework.selectSubject")} />
-              </SelectTrigger>
-              <SelectContent>
-                {subjectItems.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <form.AppField name="classId">
+            {(field) => (
+              <field.SelectField
+                label={t("homework.fieldClass")}
+                placeholder={t("homework.selectClass")}
+                items={classItems}
+                disabled={classes === undefined}
+                onValueChange={(value) => {
+                  // Same-grade classes share subjects; otherwise the picked
+                  // subject no longer applies and is cleared.
+                  const next = (classes ?? []).find((c) => c.classId === value);
+                  if (
+                    !next?.subjects.some(
+                      (s) => s.subjectId === form.state.values.subjectId,
+                    )
+                  ) {
+                    form.setFieldValue("subjectId", null);
+                  }
+                }}
+              />
+            )}
+          </form.AppField>
+          {/* Subject options depend on the picked class — resubscribe on change. */}
+          <form.Subscribe selector={(s) => s.values.classId}>
+            {(classId) => {
+              const cls = (classes ?? []).find((c) => c.classId === classId);
+              const subjectItems = (cls?.subjects ?? []).map((s) => ({
+                value: s.subjectId as string,
+                label: s.name,
+              }));
+              return (
+                <form.AppField name="subjectId">
+                  {(field) => (
+                    <field.SelectField
+                      label={t("homework.fieldSubject")}
+                      placeholder={t("homework.selectSubject")}
+                      items={subjectItems}
+                      disabled={classId === null}
+                    />
+                  )}
+                </form.AppField>
+              );
+            }}
+          </form.Subscribe>
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
@@ -261,60 +249,46 @@ function HomeworkForm({
         </p>
       )}
 
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="homework-title">{t("homework.fieldTitle")}</Label>
-        <Input
-          id="homework-title"
-          required
-          maxLength={200}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-      </div>
+      <form.AppField name="title">
+        {(field) => (
+          <field.TextField label={t("homework.fieldTitle")} maxLength={200} />
+        )}
+      </form.AppField>
 
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="homework-description">
-          {t("homework.fieldDescription")}
-        </Label>
-        <Textarea
-          id="homework-description"
-          rows={3}
-          maxLength={4000}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-      </div>
+      <form.AppField name="description">
+        {(field) => (
+          <field.TextareaField
+            label={t("homework.fieldDescription")}
+            rows={3}
+            maxLength={4000}
+          />
+        )}
+      </form.AppField>
 
       <div className="grid gap-3 sm:grid-cols-[1fr_8rem]">
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="homework-deadline">
-            {t("homework.fieldDeadline")}
-          </Label>
-          <Input
-            id="homework-deadline"
-            type="datetime-local"
-            dir="ltr"
-            required
-            min={minDeadlineLocal}
-            value={deadlineLocal}
-            onChange={(e) => setDeadlineLocal(e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="homework-marks">{t("homework.fieldMarks")}</Label>
-          <Input
-            id="homework-marks"
-            type="number"
-            dir="ltr"
-            inputMode="numeric"
-            required
-            min={1}
-            max={100}
-            step={1}
-            value={marks}
-            onChange={(e) => setMarks(e.target.value)}
-          />
-        </div>
+        <form.AppField name="deadlineLocal">
+          {(field) => (
+            <field.TextField
+              label={t("homework.fieldDeadline")}
+              type="datetime-local"
+              dir="ltr"
+              min={minDeadlineLocal}
+            />
+          )}
+        </form.AppField>
+        <form.AppField name="marks">
+          {(field) => (
+            <field.TextField
+              label={t("homework.fieldMarks")}
+              type="number"
+              dir="ltr"
+              inputMode="numeric"
+              min={1}
+              max={100}
+              step={1}
+            />
+          )}
+        </form.AppField>
       </div>
 
       <DialogFooter className="mt-2">
@@ -325,10 +299,9 @@ function HomeworkForm({
         >
           {t("common.cancel")}
         </Button>
-        <Button type="submit" disabled={pending}>
-          {pending ? <Spinner /> : null}
-          {t("common.save")}
-        </Button>
+        <form.AppForm>
+          <form.SubmitButton>{t("common.save")}</form.SubmitButton>
+        </form.AppForm>
       </DialogFooter>
     </form>
   );

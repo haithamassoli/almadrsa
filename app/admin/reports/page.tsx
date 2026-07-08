@@ -6,8 +6,10 @@ import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { EllipsisVertical, Eye, NotebookPen, RefreshCw, Send } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useAppForm } from "@/components/form";
 import { ReportCardView } from "@/components/report-card-view";
 import {
   AlertDialog,
@@ -52,7 +54,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { formatDateTime, formatNumber, t } from "@/lib/i18n";
 import { mutationErrorText } from "./errors";
 
@@ -114,46 +115,77 @@ function RemarksForm({
   onClose: () => void;
 }) {
   const card = useQuery(api.reports.getCard, { cardId: target.cardId });
-  const updateRemarks = useMutation(api.reports.updateRemarks);
-  const [pending, setPending] = useState(false);
 
   if (card === undefined) {
     return <Skeleton className="h-28 w-full rounded-xl" />;
   }
 
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const remarks = String(data.get("remarks") ?? "");
-    setPending(true);
-    try {
-      await updateRemarks({ cardId: target.cardId, remarks });
-      toast.success(t("reports.remarksSaved"));
-      onClose();
-    } catch (error) {
-      toast.error(mutationErrorText(error));
-    } finally {
-      setPending(false);
-    }
-  }
+  // Mounted only once the card resolves, so the form seeds from the loaded
+  // remarks at mount (no reset effect) and remounts per card via the parent key.
+  return (
+    <RemarksEditor
+      cardId={target.cardId}
+      initialRemarks={card.remarks ?? ""}
+      onClose={onClose}
+    />
+  );
+}
+
+function RemarksEditor({
+  cardId,
+  initialRemarks,
+  onClose,
+}: {
+  cardId: Id<"reportCards">;
+  initialRemarks: string;
+  onClose: () => void;
+}) {
+  const updateRemarks = useMutation(api.reports.updateRemarks);
+
+  const form = useAppForm({
+    defaultValues: { remarks: initialRemarks },
+    validators: {
+      // Remarks are optional — the native maxLength caps input at 2000.
+      onSubmit: z.object({ remarks: z.string() }),
+    },
+    onSubmit: async ({ value }) => {
+      try {
+        // Sent verbatim: whitespace-only clears the stored remarks.
+        await updateRemarks({ cardId, remarks: value.remarks });
+        toast.success(t("reports.remarksSaved"));
+        onClose();
+      } catch (error) {
+        toast.error(mutationErrorText(error));
+      }
+    },
+  });
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4">
-      <Textarea
-        name="remarks"
-        defaultValue={card.remarks ?? ""}
-        placeholder={t("reports.remarksPlaceholder")}
-        maxLength={2000}
-        rows={5}
-        autoFocus
-      />
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.handleSubmit();
+      }}
+      className="flex flex-col gap-4"
+    >
+      <form.AppField name="remarks">
+        {(field) => (
+          <field.TextareaField
+            placeholder={t("reports.remarksPlaceholder")}
+            maxLength={2000}
+            rows={5}
+            autoFocus
+          />
+        )}
+      </form.AppField>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
           {t("common.cancel")}
         </Button>
-        <Button type="submit" disabled={pending}>
-          {t("common.save")}
-        </Button>
+        <form.AppForm>
+          <form.SubmitButton>{t("common.save")}</form.SubmitButton>
+        </form.AppForm>
       </DialogFooter>
     </form>
   );

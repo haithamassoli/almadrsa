@@ -4,8 +4,10 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { Megaphone, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useAppForm } from "@/components/form";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,18 +36,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
 import { formatDateTime, t } from "@/lib/i18n";
 import { mutationErrorText } from "./announcements-errors";
 
@@ -75,14 +66,6 @@ function ComposeForm({
   const create = useMutation(api.announcements.create);
   const classes = useQuery(api.lessons.listMyClasses, {});
 
-  const [scope, setScope] = useState<"school" | "class">(
-    canSchoolScope ? "school" : "class",
-  );
-  const [classValue, setClassValue] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [pending, setPending] = useState(false);
-
   const scopeItems = useMemo(
     () =>
       canSchoolScope
@@ -102,105 +85,114 @@ function ComposeForm({
     [classes],
   );
 
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    const classId =
-      scope === "class" ? (classValue as Id<"classes"> | null) : null;
-    if (scope === "class" && !classId) return;
-    setPending(true);
-    try {
-      await create({
-        scope,
-        classId: classId ?? undefined,
-        title: title.trim(),
-        body: body.trim(),
-      });
-      toast.success(t("announce.created"));
-      onOpenChange(false);
-    } catch (error) {
-      toast.error(mutationErrorText(error));
-    } finally {
-      setPending(false);
-    }
-  }
+  const form = useAppForm({
+    defaultValues: {
+      scope: canSchoolScope ? "school" : "class",
+      classId: null as string | null,
+      title: "",
+      body: "",
+    },
+    validators: {
+      onSubmit: z
+        .object({
+          scope: z.string(),
+          classId: z.string().nullable(),
+          title: z
+            .string()
+            .trim()
+            .min(1, t("common.requiredField"))
+            .max(MAX_TITLE_LENGTH, t("common.invalidValue")),
+          body: z
+            .string()
+            .trim()
+            .min(1, t("common.requiredField"))
+            .max(MAX_BODY_LENGTH, t("common.invalidValue")),
+        })
+        // Class scope requires a class; school scope ignores it.
+        .refine((v) => v.scope !== "class" || !!v.classId, {
+          message: t("common.requiredField"),
+          path: ["classId"],
+        }),
+    },
+    onSubmit: async ({ value }) => {
+      const classId =
+        value.scope === "class"
+          ? (value.classId as Id<"classes"> | null)
+          : null;
+      if (value.scope === "class" && !classId) return;
+      try {
+        await create({
+          scope: value.scope as "school" | "class",
+          classId: classId ?? undefined,
+          title: value.title.trim(),
+          body: value.body.trim(),
+        });
+        toast.success(t("announce.created"));
+        onOpenChange(false);
+      } catch (error) {
+        toast.error(mutationErrorText(error));
+      }
+    },
+  });
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4">
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.handleSubmit();
+      }}
+      className="flex flex-col gap-4"
+    >
       {canSchoolScope ? (
-        <div className="flex flex-col gap-2">
-          <Label id="announce-scope-label">{t("announce.scopeLabel")}</Label>
-          <Select
-            items={scopeItems}
-            value={scope}
-            onValueChange={(value) => setScope(value as "school" | "class")}
-          >
-            <SelectTrigger
-              className="w-full"
-              aria-labelledby="announce-scope-label"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {scopeItems.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <form.AppField name="scope">
+          {(field) => (
+            <field.SelectField
+              label={t("announce.scopeLabel")}
+              items={scopeItems}
+            />
+          )}
+        </form.AppField>
       ) : null}
 
-      {scope === "class" ? (
-        <div className="flex flex-col gap-2">
-          <Label id="announce-class-label">{t("announce.classLabel")}</Label>
-          <Select
-            items={classItems}
-            value={classValue}
-            onValueChange={(value) => setClassValue((value as string) ?? null)}
-            disabled={classes === undefined}
-          >
-            <SelectTrigger
-              className="w-full"
-              aria-labelledby="announce-class-label"
-            >
-              <SelectValue placeholder={t("announce.selectClass")} />
-            </SelectTrigger>
-            <SelectContent>
-              {classItems.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      ) : null}
+      {/* Class picker only when the class scope is selected. */}
+      <form.Subscribe selector={(s) => s.values.scope}>
+        {(scope) =>
+          scope === "class" ? (
+            <form.AppField name="classId">
+              {(field) => (
+                <field.SelectField
+                  label={t("announce.classLabel")}
+                  placeholder={t("announce.selectClass")}
+                  items={classItems}
+                  disabled={classes === undefined}
+                />
+              )}
+            </form.AppField>
+          ) : null
+        }
+      </form.Subscribe>
 
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="announce-title">{t("announce.titleLabel")}</Label>
-        <Input
-          id="announce-title"
-          required
-          maxLength={MAX_TITLE_LENGTH}
-          placeholder={t("announce.titlePlaceholder")}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-      </div>
+      <form.AppField name="title">
+        {(field) => (
+          <field.TextField
+            label={t("announce.titleLabel")}
+            maxLength={MAX_TITLE_LENGTH}
+            placeholder={t("announce.titlePlaceholder")}
+          />
+        )}
+      </form.AppField>
 
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="announce-body">{t("announce.bodyLabel")}</Label>
-        <Textarea
-          id="announce-body"
-          required
-          maxLength={MAX_BODY_LENGTH}
-          rows={5}
-          placeholder={t("announce.bodyPlaceholder")}
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-        />
-      </div>
+      <form.AppField name="body">
+        {(field) => (
+          <field.TextareaField
+            label={t("announce.bodyLabel")}
+            rows={5}
+            maxLength={MAX_BODY_LENGTH}
+            placeholder={t("announce.bodyPlaceholder")}
+          />
+        )}
+      </form.AppField>
 
       <DialogFooter className="mt-2">
         <Button
@@ -210,18 +202,9 @@ function ComposeForm({
         >
           {t("common.cancel")}
         </Button>
-        <Button
-          type="submit"
-          disabled={
-            pending ||
-            title.trim().length === 0 ||
-            body.trim().length === 0 ||
-            (scope === "class" && !classValue)
-          }
-        >
-          {pending ? <Spinner /> : null}
-          {t("announce.publish")}
-        </Button>
+        <form.AppForm>
+          <form.SubmitButton>{t("announce.publish")}</form.SubmitButton>
+        </form.AppForm>
       </DialogFooter>
     </form>
   );

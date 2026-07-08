@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -15,6 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useAppForm } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,15 +25,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
 import { t } from "@/lib/i18n";
 import { mutationErrorText } from "./errors";
 
@@ -109,10 +102,39 @@ function SlotForm({
   const upsertSlot = useMutation(api.timetable.upsertSlot);
   const deleteSlot = useMutation(api.timetable.deleteSlot);
 
-  const [subjectId, setSubjectId] = useState<string>(slot?.subjectId ?? "");
-  const [teacherId, setTeacherId] = useState<string>(slot?.teacherId ?? "");
-  const [pending, setPending] = useState(false);
+  // Delete runs outside the form's submit flow, so it keeps its own pending flag.
+  const [deletePending, setDeletePending] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const form = useAppForm({
+    defaultValues: {
+      subjectId: (slot?.subjectId ?? null) as string | null,
+      teacherId: (slot?.teacherId ?? null) as string | null,
+    },
+    validators: {
+      onSubmit: z.object({
+        subjectId: z.string().nullable(),
+        teacherId: z.string().nullable(),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      // Guard mirrors the disabled Save button; also narrows the nullable fields.
+      if (!value.subjectId || !value.teacherId) return;
+      try {
+        await upsertSlot({
+          classId,
+          weekday,
+          period,
+          subjectId: value.subjectId as Id<"subjects">,
+          teacherId: value.teacherId,
+        });
+        toast.success(t("timetable.saved"));
+        onOpenChange(false);
+      } catch (error) {
+        toast.error(mutationErrorText(error));
+      }
+    },
+  });
 
   const subjectItems = useMemo(
     () => subjects.map((s) => ({ value: s.subjectId as string, label: s.name })),
@@ -123,30 +145,9 @@ function SlotForm({
     [teachers],
   );
 
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!subjectId || !teacherId) return;
-    setPending(true);
-    try {
-      await upsertSlot({
-        classId,
-        weekday,
-        period,
-        subjectId: subjectId as Id<"subjects">,
-        teacherId,
-      });
-      toast.success(t("timetable.saved"));
-      onOpenChange(false);
-    } catch (error) {
-      toast.error(mutationErrorText(error));
-    } finally {
-      setPending(false);
-    }
-  }
-
   async function onDelete() {
     if (!slot) return;
-    setPending(true);
+    setDeletePending(true);
     try {
       await deleteSlot({ slotId: slot._id });
       toast.success(t("timetable.deleted"));
@@ -155,84 +156,78 @@ function SlotForm({
     } catch (error) {
       toast.error(mutationErrorText(error));
     } finally {
-      setPending(false);
+      setDeletePending(false);
     }
   }
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
-        <Label id="slot-subject-label">{t("timetable.subject")}</Label>
-        <Select
-          items={subjectItems}
-          value={subjectId}
-          onValueChange={(value) => setSubjectId(value as string)}
-        >
-          <SelectTrigger
-            aria-labelledby="slot-subject-label"
-            className="w-full"
-          >
-            <SelectValue placeholder={t("timetable.selectSubject")} />
-          </SelectTrigger>
-          <SelectContent>
-            {subjectItems.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex flex-col gap-2">
-        <Label id="slot-teacher-label">{t("timetable.teacher")}</Label>
-        <Select
-          items={teacherItems}
-          value={teacherId}
-          onValueChange={(value) => setTeacherId(value as string)}
-        >
-          <SelectTrigger
-            aria-labelledby="slot-teacher-label"
-            className="w-full"
-          >
-            <SelectValue placeholder={t("timetable.selectTeacher")} />
-          </SelectTrigger>
-          <SelectContent>
-            {teacherItems.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <DialogFooter className="mt-2 sm:justify-between">
-        {slot !== null ? (
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={pending}
-            onClick={() => setConfirmDelete(true)}
-          >
-            {t("timetable.deleteSlot")}
-          </Button>
-        ) : (
-          <span />
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.handleSubmit();
+      }}
+      className="flex flex-col gap-4"
+    >
+      <form.AppField name="subjectId">
+        {(field) => (
+          <field.SelectField
+            label={t("timetable.subject")}
+            placeholder={t("timetable.selectSubject")}
+            items={subjectItems}
+          />
         )}
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-          >
-            {t("common.cancel")}
-          </Button>
-          <Button type="submit" disabled={pending || !subjectId || !teacherId}>
-            {pending ? <Spinner /> : null}
-            {t("common.save")}
-          </Button>
-        </div>
-      </DialogFooter>
+      </form.AppField>
+      <form.AppField name="teacherId">
+        {(field) => (
+          <field.SelectField
+            label={t("timetable.teacher")}
+            placeholder={t("timetable.selectTeacher")}
+            items={teacherItems}
+          />
+        )}
+      </form.AppField>
+
+      <form.Subscribe
+        selector={(s) => ({
+          subjectId: s.values.subjectId,
+          teacherId: s.values.teacherId,
+          isSubmitting: s.isSubmitting,
+        })}
+      >
+        {({ subjectId, teacherId, isSubmitting }) => (
+          <DialogFooter className="mt-2 sm:justify-between">
+            {slot !== null ? (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={deletePending || isSubmitting}
+                onClick={() => setConfirmDelete(true)}
+              >
+                {t("timetable.deleteSlot")}
+              </Button>
+            ) : (
+              <span />
+            )}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+              >
+                {t("common.cancel")}
+              </Button>
+              <form.AppForm>
+                <form.SubmitButton
+                  disabled={deletePending || !subjectId || !teacherId}
+                >
+                  {t("common.save")}
+                </form.SubmitButton>
+              </form.AppForm>
+            </div>
+          </DialogFooter>
+        )}
+      </form.Subscribe>
 
       <AlertDialog
         open={confirmDelete}
@@ -251,7 +246,7 @@ function SlotForm({
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              disabled={pending}
+              disabled={deletePending}
               onClick={onDelete}
             >
               {t("timetable.deleteSlot")}

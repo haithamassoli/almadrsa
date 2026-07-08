@@ -15,8 +15,10 @@ import {
   SearchX,
 } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { numberString, useAppForm } from "@/components/form";
 import { AudioPlayer } from "@/components/audio-player";
 import {
   AlertDialog,
@@ -38,8 +40,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Sheet,
   SheetContent,
@@ -48,7 +48,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
   TableBody,
@@ -57,7 +56,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { formatDateTime, formatNumber, t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { mutationErrorText } from "../errors";
@@ -464,30 +462,32 @@ function GradingPanel({
   onDone: () => void;
 }) {
   const gradeSubmission = useMutation(api.homework.grade);
-  const [score, setScore] = useState(
-    detail.grade !== undefined ? String(detail.grade) : "",
-  );
-  const [feedback, setFeedback] = useState(detail.feedbackText ?? "");
-  const [pending, setPending] = useState(false);
-
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    setPending(true);
-    try {
-      await gradeSubmission({
-        submissionId: detail.submissionId,
-        grade: Number(score),
-        // Always sent: whitespace-only clears the stored feedback.
-        feedbackText: feedback,
-      });
-      toast.success(t("homework.gradeSaved"));
-      onDone();
-    } catch (error) {
-      toast.error(mutationErrorText(error));
-    } finally {
-      setPending(false);
-    }
-  }
+  const form = useAppForm({
+    defaultValues: {
+      score: detail.grade !== undefined ? String(detail.grade) : "",
+      feedback: detail.feedbackText ?? "",
+    },
+    validators: {
+      onSubmit: z.object({
+        score: numberString({ min: 0, max: detail.marks }),
+        feedback: z.string().max(2000, t("common.invalidValue")),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      try {
+        await gradeSubmission({
+          submissionId: detail.submissionId,
+          grade: Number(value.score),
+          // Always sent: whitespace-only clears the stored feedback.
+          feedbackText: value.feedback,
+        });
+        toast.success(t("homework.gradeSaved"));
+        onDone();
+      } catch (error) {
+        toast.error(mutationErrorText(error));
+      }
+    },
+  });
 
   return (
     <div className="flex flex-col gap-4 px-4 pb-4">
@@ -562,40 +562,43 @@ function GradingPanel({
         </div>
       ) : null}
 
-      <form onSubmit={onSubmit} className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="hw-grade-score">
-            {t("homework.gradeLabel", { max: formatNumber(detail.marks) })}
-          </Label>
-          <Input
-            id="hw-grade-score"
-            type="number"
-            dir="ltr"
-            required
-            min={0}
-            max={detail.marks}
-            step="any"
-            className="w-28"
-            value={score}
-            onChange={(e) => setScore(e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="hw-grade-feedback">
-            {t("homework.feedbackLabel")}
-          </Label>
-          <Textarea
-            id="hw-grade-feedback"
-            rows={3}
-            maxLength={2000}
-            value={feedback}
-            onChange={(e) => setFeedback(e.target.value)}
-          />
-        </div>
-        <Button type="submit" disabled={pending} className="self-start">
-          {pending ? <Spinner /> : null}
-          {t("homework.saveGrade")}
-        </Button>
+      <form
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          form.handleSubmit();
+        }}
+        className="flex flex-col gap-3"
+      >
+        <form.AppField name="score">
+          {(field) => (
+            <field.TextField
+              label={t("homework.gradeLabel", {
+                max: formatNumber(detail.marks),
+              })}
+              type="number"
+              dir="ltr"
+              min={0}
+              max={detail.marks}
+              step="any"
+              className="w-28"
+            />
+          )}
+        </form.AppField>
+        <form.AppField name="feedback">
+          {(field) => (
+            <field.TextareaField
+              label={t("homework.feedbackLabel")}
+              rows={3}
+              maxLength={2000}
+            />
+          )}
+        </form.AppField>
+        <form.AppForm>
+          <form.SubmitButton className="self-start">
+            {t("homework.saveGrade")}
+          </form.SubmitButton>
+        </form.AppForm>
       </form>
     </div>
   );

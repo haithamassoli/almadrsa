@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useAppForm } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,16 +15,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
 import { t } from "@/lib/i18n";
 import { mutationErrorText } from "./errors";
 
@@ -77,12 +69,47 @@ function EventForm({
 }) {
   const createEvent = useMutation(api.events.create);
 
-  const [title, setTitle] = useState("");
-  const [kind, setKind] = useState<"holiday" | "event">("event");
-  const [date, setDate] = useState(defaultDate);
-  const [endDate, setEndDate] = useState("");
-  const [scope, setScope] = useState<string>(SCHOOL_WIDE);
-  const [pending, setPending] = useState(false);
+  const form = useAppForm({
+    defaultValues: {
+      title: "",
+      kind: "event" as "holiday" | "event",
+      date: defaultDate,
+      endDate: "",
+      // Sentinel "school" stands in for school-wide; mapped to undefined at submit.
+      scope: SCHOOL_WIDE as string,
+    },
+    validators: {
+      onSubmit: z.object({
+        title: z
+          .string()
+          .trim()
+          .min(1, t("common.requiredField"))
+          .max(200, t("common.invalidValue")),
+        kind: z.enum(["holiday", "event"]),
+        date: z.string().min(1, t("common.requiredField")),
+        endDate: z.string(),
+        scope: z.string(),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      try {
+        await createEvent({
+          title: value.title,
+          kind: value.kind,
+          date: value.date,
+          endDate: value.endDate || undefined,
+          classId:
+            value.scope !== SCHOOL_WIDE
+              ? (value.scope as Id<"classes">)
+              : undefined,
+        });
+        toast.success(t("calendarUi.eventCreated"));
+        onOpenChange(false);
+      } catch (error) {
+        toast.error(mutationErrorText(error));
+      }
+    },
+  });
 
   const kindItems = useMemo(
     () => [
@@ -102,106 +129,65 @@ function EventForm({
     [classes],
   );
 
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    setPending(true);
-    try {
-      await createEvent({
-        title,
-        kind,
-        date,
-        endDate: endDate || undefined,
-        classId:
-          scope !== SCHOOL_WIDE ? (scope as Id<"classes">) : undefined,
-      });
-      toast.success(t("calendarUi.eventCreated"));
-      onOpenChange(false);
-    } catch (error) {
-      toast.error(mutationErrorText(error));
-    } finally {
-      setPending(false);
-    }
-  }
-
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="event-title">{t("calendarUi.eventTitleLabel")}</Label>
-        <Input
-          id="event-title"
-          required
-          maxLength={200}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-      </div>
-      <div className="flex flex-col gap-2">
-        <Label id="event-kind-label">{t("calendarUi.eventKindLabel")}</Label>
-        <Select
-          items={kindItems}
-          value={kind}
-          onValueChange={(value) => setKind(value as "holiday" | "event")}
-        >
-          <SelectTrigger aria-labelledby="event-kind-label" className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {kindItems.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.handleSubmit();
+      }}
+      className="flex flex-col gap-4"
+    >
+      <form.AppField name="title">
+        {(field) => (
+          <field.TextField
+            label={t("calendarUi.eventTitleLabel")}
+            maxLength={200}
+          />
+        )}
+      </form.AppField>
+      <form.AppField name="kind">
+        {(field) => (
+          <field.SelectField
+            label={t("calendarUi.eventKindLabel")}
+            items={kindItems}
+          />
+        )}
+      </form.AppField>
       <div className="grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="event-date">{t("calendarUi.eventDateLabel")}</Label>
-          <Input
-            id="event-date"
-            type="date"
-            dir="ltr"
-            required
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="event-end-date">
-            {t("calendarUi.eventEndDateLabel")}
-          </Label>
-          <Input
-            id="event-end-date"
-            type="date"
-            dir="ltr"
-            min={date || undefined}
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-          />
-        </div>
+        <form.AppField name="date">
+          {(field) => (
+            <field.TextField
+              label={t("calendarUi.eventDateLabel")}
+              type="date"
+              dir="ltr"
+            />
+          )}
+        </form.AppField>
+        {/* endDate's native min tracks the picked start date. */}
+        <form.Subscribe selector={(s) => s.values.date}>
+          {(date) => (
+            <form.AppField name="endDate">
+              {(field) => (
+                <field.TextField
+                  label={t("calendarUi.eventEndDateLabel")}
+                  type="date"
+                  dir="ltr"
+                  min={date || undefined}
+                />
+              )}
+            </form.AppField>
+          )}
+        </form.Subscribe>
       </div>
-      <div className="flex flex-col gap-2">
-        <Label id="event-scope-label">{t("calendarUi.eventScopeLabel")}</Label>
-        <Select
-          items={scopeItems}
-          value={scope}
-          onValueChange={(value) => setScope(value as string)}
-        >
-          <SelectTrigger
-            aria-labelledby="event-scope-label"
-            className="w-full"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {scopeItems.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <form.AppField name="scope">
+        {(field) => (
+          <field.SelectField
+            label={t("calendarUi.eventScopeLabel")}
+            items={scopeItems}
+          />
+        )}
+      </form.AppField>
       <DialogFooter className="mt-2">
         <Button
           type="button"
@@ -210,10 +196,9 @@ function EventForm({
         >
           {t("common.cancel")}
         </Button>
-        <Button type="submit" disabled={pending}>
-          {pending ? <Spinner /> : null}
-          {t("common.save")}
-        </Button>
+        <form.AppForm>
+          <form.SubmitButton>{t("common.save")}</form.SubmitButton>
+        </form.AppForm>
       </DialogFooter>
     </form>
   );

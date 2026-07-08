@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { numberString, useAppForm } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,16 +15,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
 import { t } from "@/lib/i18n";
 import { mutationErrorText } from "./errors";
 
@@ -33,8 +25,6 @@ type TeachableClass = {
   gradeName: string;
   subjects: Array<{ subjectId: Id<"subjects">; name: string }>;
 };
-
-const NONE = "";
 
 /** Create a lesson outside the timetable (ad-hoc). */
 export function AdhocDialog({
@@ -77,153 +67,136 @@ function AdhocForm({
 }) {
   const createAdHoc = useMutation(api.lessons.createAdHoc);
 
-  const [classValue, setClassValue] = useState<string>(NONE);
-  const [subjectValue, setSubjectValue] = useState<string>(NONE);
-  const [date, setDate] = useState(defaultDate);
-  const [period, setPeriod] = useState("1");
-  const [title, setTitle] = useState("");
-  const [pending, setPending] = useState(false);
+  const form = useAppForm({
+    defaultValues: {
+      classId: null as string | null,
+      subjectId: null as string | null,
+      date: defaultDate,
+      period: "1",
+      title: "",
+    },
+    validators: {
+      onSubmit: z.object({
+        classId: z.string().nullable(),
+        subjectId: z.string().nullable(),
+        date: z.string().min(1, t("common.requiredField")),
+        period: numberString({ int: true, min: 1, max: 8 }),
+        title: z.string().max(120, t("common.invalidValue")),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      if (!value.classId || !value.subjectId) return;
+      try {
+        await createAdHoc({
+          classId: value.classId as Id<"classes">,
+          subjectId: value.subjectId as Id<"subjects">,
+          date: value.date,
+          period: Number(value.period),
+          title: value.title.trim() || undefined,
+        });
+        toast.success(t("lessons.adhocCreated"));
+        onOpenChange(false);
+      } catch (error) {
+        toast.error(mutationErrorText(error));
+      }
+    },
+  });
 
   const classItems = useMemo(
-    () => [
-      { value: NONE, label: t("lessons.choosePlaceholder") },
-      ...(classes ?? []).map((c) => ({
+    () =>
+      (classes ?? []).map((c) => ({
         value: c.classId as string,
         label: c.className,
       })),
-    ],
     [classes],
   );
 
-  const selectedClass = (classes ?? []).find((c) => c.classId === classValue);
-  const subjectItems = useMemo(
-    () => [
-      { value: NONE, label: t("lessons.choosePlaceholder") },
-      ...(selectedClass?.subjects ?? []).map((s) => ({
-        value: s.subjectId as string,
-        label: s.name,
-      })),
-    ],
-    [selectedClass],
-  );
-
-  function onClassChange(value: string) {
-    setClassValue(value);
-    // Single teachable subject: pre-select it, otherwise ask again.
-    const cls = (classes ?? []).find((c) => c.classId === value);
-    setSubjectValue(
-      cls && cls.subjects.length === 1
-        ? (cls.subjects[0].subjectId as string)
-        : NONE,
-    );
-  }
-
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    if (classValue === NONE || subjectValue === NONE) return;
-    setPending(true);
-    try {
-      await createAdHoc({
-        classId: classValue as Id<"classes">,
-        subjectId: subjectValue as Id<"subjects">,
-        date,
-        period: Number(period),
-        title: title.trim() || undefined,
-      });
-      toast.success(t("lessons.adhocCreated"));
-      onOpenChange(false);
-    } catch (error) {
-      toast.error(mutationErrorText(error));
-    } finally {
-      setPending(false);
-    }
-  }
-
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
-        <Label id="adhoc-class-label">{t("lessons.classLabel")}</Label>
-        <Select
-          items={classItems}
-          value={classValue}
-          onValueChange={(value) => onClassChange(value as string)}
-        >
-          <SelectTrigger
-            aria-labelledby="adhoc-class-label"
-            className="w-full"
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.handleSubmit();
+      }}
+      className="flex flex-col gap-4"
+    >
+      <form.AppField name="classId">
+        {(field) => (
+          <field.SelectField
+            label={t("lessons.classLabel")}
+            placeholder={t("lessons.choosePlaceholder")}
+            items={classItems}
             disabled={classes === undefined}
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {classItems.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex flex-col gap-2">
-        <Label id="adhoc-subject-label">{t("lessons.subjectLabel")}</Label>
-        <Select
-          items={subjectItems}
-          value={subjectValue}
-          onValueChange={(value) => setSubjectValue(value as string)}
-        >
-          <SelectTrigger
-            aria-labelledby="adhoc-subject-label"
-            className="w-full"
-            disabled={selectedClass === undefined}
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {subjectItems.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+            onValueChange={(value) => {
+              // Single teachable subject: pre-select it, otherwise ask again.
+              const cls = (classes ?? []).find((c) => c.classId === value);
+              form.setFieldValue(
+                "subjectId",
+                cls && cls.subjects.length === 1
+                  ? (cls.subjects[0].subjectId as string)
+                  : null,
+              );
+            }}
+          />
+        )}
+      </form.AppField>
+
+      {/* Subject options depend on the picked class — resubscribe on change. */}
+      <form.Subscribe selector={(s) => s.values.classId}>
+        {(classId) => {
+          const selectedClass = (classes ?? []).find(
+            (c) => c.classId === classId,
+          );
+          const subjectItems = (selectedClass?.subjects ?? []).map((s) => ({
+            value: s.subjectId as string,
+            label: s.name,
+          }));
+          return (
+            <form.AppField name="subjectId">
+              {(field) => (
+                <field.SelectField
+                  label={t("lessons.subjectLabel")}
+                  placeholder={t("lessons.choosePlaceholder")}
+                  items={subjectItems}
+                  disabled={selectedClass === undefined}
+                />
+              )}
+            </form.AppField>
+          );
+        }}
+      </form.Subscribe>
+
       <div className="grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="adhoc-date">{t("lessons.dateLabel")}</Label>
-          <Input
-            id="adhoc-date"
-            type="date"
-            dir="ltr"
-            required
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="adhoc-period">{t("lessons.periodLabel")}</Label>
-          <Input
-            id="adhoc-period"
-            type="number"
-            dir="ltr"
-            inputMode="numeric"
-            required
-            min={1}
-            max={8}
-            step={1}
-            value={period}
-            onChange={(e) => setPeriod(e.target.value)}
-          />
-        </div>
+        <form.AppField name="date">
+          {(field) => (
+            <field.TextField
+              label={t("lessons.dateLabel")}
+              type="date"
+              dir="ltr"
+            />
+          )}
+        </form.AppField>
+        <form.AppField name="period">
+          {(field) => (
+            <field.TextField
+              label={t("lessons.periodLabel")}
+              type="number"
+              dir="ltr"
+              inputMode="numeric"
+              min={1}
+              max={8}
+              step={1}
+            />
+          )}
+        </form.AppField>
       </div>
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="adhoc-title">{t("lessons.titleLabel")}</Label>
-        <Input
-          id="adhoc-title"
-          maxLength={120}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-      </div>
+
+      <form.AppField name="title">
+        {(field) => (
+          <field.TextField label={t("lessons.titleLabel")} maxLength={120} />
+        )}
+      </form.AppField>
+
       <DialogFooter className="mt-2">
         <Button
           type="button"
@@ -232,13 +205,17 @@ function AdhocForm({
         >
           {t("common.cancel")}
         </Button>
-        <Button
-          type="submit"
-          disabled={pending || classValue === NONE || subjectValue === NONE}
-        >
-          {pending ? <Spinner /> : null}
-          {t("common.add")}
-        </Button>
+        <form.AppForm>
+          <form.Subscribe
+            selector={(s) => !s.values.classId || !s.values.subjectId}
+          >
+            {(incomplete) => (
+              <form.SubmitButton disabled={incomplete}>
+                {t("common.add")}
+              </form.SubmitButton>
+            )}
+          </form.Subscribe>
+        </form.AppForm>
       </DialogFooter>
     </form>
   );

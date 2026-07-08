@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { Button } from "@/components/ui/button";
+import { useAppForm } from "@/components/form";
 import {
   Card,
   CardContent,
@@ -12,11 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
-import { Switch } from "@/components/ui/switch";
 import { t } from "@/lib/i18n";
 import { mutationErrorText } from "./errors";
 
@@ -53,26 +49,43 @@ function ChannelsCard({
   config: { webhookEnabled: boolean; webhookUrl?: string };
 }) {
   const saveConfig = useMutation(api.admin.saveChannelsConfig);
-  const [enabled, setEnabled] = useState(config.webhookEnabled);
-  const [url, setUrl] = useState(config.webhookUrl ?? "");
-  const [pending, setPending] = useState(false);
 
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    setPending(true);
-    try {
-      // An emptied URL is cleared; a stored URL survives toggling off.
-      await saveConfig({
-        webhookEnabled: enabled,
-        webhookUrl: url.trim() === "" ? undefined : url.trim(),
-      });
-      toast.success(t("settingsUi.channelsSaved"));
-    } catch (error) {
-      toast.error(mutationErrorText(error));
-    } finally {
-      setPending(false);
-    }
-  }
+  const form = useAppForm({
+    defaultValues: {
+      webhookEnabled: config.webhookEnabled,
+      webhookUrl: config.webhookUrl ?? "",
+    },
+    validators: {
+      // When the webhook is enabled the URL is required and must be https;
+      // when it's off the field is disabled and its value is ignored.
+      onSubmit: z
+        .object({
+          webhookEnabled: z.boolean(),
+          webhookUrl: z.string().trim(),
+        })
+        .refine((v) => !v.webhookEnabled || v.webhookUrl.length > 0, {
+          message: t("common.requiredField"),
+          path: ["webhookUrl"],
+        })
+        .refine((v) => !v.webhookEnabled || /^https:\/\//.test(v.webhookUrl), {
+          message: t("common.invalidValue"),
+          path: ["webhookUrl"],
+        }),
+    },
+    onSubmit: async ({ value }) => {
+      try {
+        // An emptied URL is cleared; a stored URL survives toggling off.
+        const url = value.webhookUrl.trim();
+        await saveConfig({
+          webhookEnabled: value.webhookEnabled,
+          webhookUrl: url === "" ? undefined : url,
+        });
+        toast.success(t("settingsUi.channelsSaved"));
+      } catch (error) {
+        toast.error(mutationErrorText(error));
+      }
+    },
+  });
 
   return (
     <Card className="max-w-2xl rounded-2xl">
@@ -81,39 +94,40 @@ function ChannelsCard({
         <CardDescription>{t("settingsUi.channelsExplainer")}</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={onSubmit} className="flex flex-col gap-4">
-          <div className="flex items-center justify-between gap-3 rounded-xl border p-3">
-            <Label htmlFor="channels-enabled">
-              {t("settingsUi.webhookEnabledLabel")}
-            </Label>
-            <Switch
-              id="channels-enabled"
-              checked={enabled}
-              onCheckedChange={(checked) => setEnabled(checked)}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="channels-url">
-              {t("settingsUi.webhookUrlLabel")}
-            </Label>
-            <Input
-              id="channels-url"
-              type="url"
-              dir="ltr"
-              placeholder={t("settingsUi.webhookUrlPlaceholder")}
-              maxLength={2048}
-              required={enabled}
-              pattern="https://.*"
-              disabled={!enabled}
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            />
-          </div>
+        <form
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            form.handleSubmit();
+          }}
+          className="flex flex-col gap-4"
+        >
+          <form.AppField name="webhookEnabled">
+            {(field) => (
+              <field.SwitchField label={t("settingsUi.webhookEnabledLabel")} />
+            )}
+          </form.AppField>
+          {/* URL is only editable while the webhook is enabled. */}
+          <form.Subscribe selector={(s) => s.values.webhookEnabled}>
+            {(enabled) => (
+              <form.AppField name="webhookUrl">
+                {(field) => (
+                  <field.TextField
+                    label={t("settingsUi.webhookUrlLabel")}
+                    type="url"
+                    dir="ltr"
+                    placeholder={t("settingsUi.webhookUrlPlaceholder")}
+                    maxLength={2048}
+                    disabled={!enabled}
+                  />
+                )}
+              </form.AppField>
+            )}
+          </form.Subscribe>
           <div className="flex justify-end">
-            <Button type="submit" disabled={pending}>
-              {pending ? <Spinner /> : null}
-              {t("common.save")}
-            </Button>
+            <form.AppForm>
+              <form.SubmitButton>{t("common.save")}</form.SubmitButton>
+            </form.AppForm>
           </div>
         </form>
       </CardContent>

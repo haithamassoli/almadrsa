@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation } from "convex/react";
 import { ChevronDown, ChevronUp, Plus, X } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useAppForm } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,8 +25,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
 import { formatNumber, t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { mutationErrorText } from "./errors";
@@ -149,7 +149,6 @@ function QuestionForm({
   );
 
   const [type, setType] = useState<QuestionType>(question?.type ?? "mcq");
-  const [text, setText] = useState(question?.text ?? "");
   const [options, setOptions] = useState<OptionDraft[]>(() =>
     question?.type === "mcq" && question.options.length > 0
       ? question.options.map((o) => ({ id: o.id, text: o.text }))
@@ -183,12 +182,6 @@ function QuestionForm({
       ? (question.items ?? []).map((item) => ({ id: item.id, text: item.text }))
       : [makeItem(), makeItem(), makeItem()],
   );
-  const [rubric, setRubric] = useState(question?.rubricText ?? "");
-  const [topic, setTopic] = useState(question?.topic ?? "");
-  const [difficulty, setDifficulty] = useState<Difficulty>(
-    question?.difficulty ?? "medium",
-  );
-
   // Image attach (any type): the picked file uploads on save; an existing
   // image survives unless explicitly removed or replaced.
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -196,7 +189,6 @@ function QuestionForm({
   const [imageRemoved, setImageRemoved] = useState(false);
   const imagePreviewRef = useRef<string | null>(null);
 
-  const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Unmount cleanup of the preview object URL (external resource).
@@ -350,15 +342,8 @@ function QuestionForm({
     setImageRemoved(true);
   }
 
-  // Live placeholder count for the fill-blank hint (mirrors the server).
-  const placeholderCount =
-    type === "fillblank"
-      ? (text.trim().match(BLANK_PLACEHOLDER)?.length ?? 0)
-      : 0;
-
   /** Client validation mirroring convex/questions.ts cleanQuestionPayload. */
-  function validate(): string | null {
-    if (text.trim().length === 0) return t("questions.valText");
+  function validate(placeholderCount: number): string | null {
     if (type === "mcq") {
       if (options.some((o) => o.text.trim().length === 0)) {
         return t("questions.valOptionText");
@@ -403,7 +388,7 @@ function QuestionForm({
   }
 
   /** Per-type payload; type-foreign fields stay absent (server forbids them). */
-  function buildTypePayload() {
+  function buildTypePayload(rubric: string) {
     switch (type) {
       case "mcq":
         return {
@@ -447,65 +432,89 @@ function QuestionForm({
     }
   }
 
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    const validationError = validate();
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-    setError(null);
-    setPending(true);
+  const form = useAppForm({
+    defaultValues: {
+      text: question?.text ?? "",
+      topic: question?.topic ?? "",
+      rubric: question?.rubricText ?? "",
+      difficulty: (question?.difficulty ?? "medium") as string,
+    },
+    validators: {
+      onSubmit: z.object({
+        text: z.string().trim().min(1, t("questions.valText")),
+        topic: z.string().max(200, t("common.invalidValue")),
+        rubric: z.string().max(2000, t("common.invalidValue")),
+        difficulty: z.string(),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      const text = value.text;
+      const placeholderCount =
+        type === "fillblank"
+          ? (text.trim().match(BLANK_PLACEHOLDER)?.length ?? 0)
+          : 0;
+      const validationError = validate(placeholderCount);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
+      setError(null);
 
-    try {
-      // Upload the picked image first; keep/remove the stored one otherwise.
-      let imageId: Id<"_storage"> | undefined = imageRemoved
-        ? undefined
-        : question?.imageId;
-      if (imageFile) {
-        try {
-          const uploadUrl = await generateImageUploadUrl({});
-          const response = await fetch(uploadUrl, {
-            method: "POST",
-            headers: { "Content-Type": imageFile.type },
-            body: imageFile,
-          });
-          if (!response.ok) throw new Error("upload_failed");
-          const { storageId } = (await response.json()) as {
-            storageId: Id<"_storage">;
-          };
-          imageId = storageId;
-        } catch {
-          toast.error(t("questions.imageUploadError"));
-          return;
+      try {
+        // Upload the picked image first; keep/remove the stored one otherwise.
+        let imageId: Id<"_storage"> | undefined = imageRemoved
+          ? undefined
+          : question?.imageId;
+        if (imageFile) {
+          try {
+            const uploadUrl = await generateImageUploadUrl({});
+            const response = await fetch(uploadUrl, {
+              method: "POST",
+              headers: { "Content-Type": imageFile.type },
+              body: imageFile,
+            });
+            if (!response.ok) throw new Error("upload_failed");
+            const { storageId } = (await response.json()) as {
+              storageId: Id<"_storage">;
+            };
+            imageId = storageId;
+          } catch {
+            toast.error(t("questions.imageUploadError"));
+            return;
+          }
         }
-      }
 
-      const payload = {
-        subjectId,
-        text,
-        topic: topic.trim() || undefined,
-        difficulty,
-        imageId,
-        ...buildTypePayload(),
-      };
-      if (question === null) {
-        await createQuestion(payload);
-        toast.success(t("questions.created"));
-      } else {
-        await updateQuestion({ questionId: question._id, ...payload });
-        toast.success(t("questions.updated"));
+        const payload = {
+          subjectId,
+          text,
+          topic: value.topic.trim() || undefined,
+          difficulty: value.difficulty as Difficulty,
+          imageId,
+          ...buildTypePayload(value.rubric),
+        };
+        if (question === null) {
+          await createQuestion(payload);
+          toast.success(t("questions.created"));
+        } else {
+          await updateQuestion({ questionId: question._id, ...payload });
+          toast.success(t("questions.updated"));
+        }
+        onOpenChange(false);
+      } catch (err) {
+        toast.error(mutationErrorText(err));
       }
-      onOpenChange(false);
-    } catch (err) {
-      toast.error(mutationErrorText(err));
-    } finally {
-      setPending(false);
-    }
-  }
+    },
+  });
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4">
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.handleSubmit();
+      }}
+      className="flex flex-col gap-4"
+    >
       {/* Type — locked while editing (grading depends on it). */}
       <div className="flex flex-col gap-2">
         <Label id="q-type-label">{t("questions.typeLabel")}</Label>
@@ -530,23 +539,30 @@ function QuestionForm({
 
       {/* Question text */}
       <div className="flex flex-col gap-2">
-        <Label htmlFor="q-text">{t("questions.questionTextLabel")}</Label>
-        <Textarea
-          id="q-text"
-          required
-          rows={3}
-          maxLength={2000}
-          placeholder={t("questions.questionTextPlaceholder")}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-        />
+        <form.AppField name="text">
+          {(field) => (
+            <field.TextareaField
+              label={t("questions.questionTextLabel")}
+              rows={3}
+              maxLength={2000}
+              placeholder={t("questions.questionTextPlaceholder")}
+            />
+          )}
+        </form.AppField>
         {type === "fillblank" ? (
-          <p className="text-xs text-muted-foreground">
-            {t("questions.fillblankHint")} ·{" "}
-            {t("questions.blanksDetected", {
-              n: formatNumber(placeholderCount),
-            })}
-          </p>
+          // Live placeholder count for the fill-blank hint (mirrors the server).
+          <form.Subscribe selector={(s) => s.values.text}>
+            {(text) => (
+              <p className="text-xs text-muted-foreground">
+                {t("questions.fillblankHint")} ·{" "}
+                {t("questions.blanksDetected", {
+                  n: formatNumber(
+                    text.trim().match(BLANK_PLACEHOLDER)?.length ?? 0,
+                  ),
+                })}
+              </p>
+            )}
+          </form.Subscribe>
         ) : null}
       </div>
 
@@ -779,17 +795,16 @@ function QuestionForm({
           ) : null}
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="q-rubric">{t("questions.rubricLabel")}</Label>
-          <Textarea
-            id="q-rubric"
-            rows={3}
-            maxLength={2000}
-            placeholder={t("questions.rubricPlaceholder")}
-            value={rubric}
-            onChange={(e) => setRubric(e.target.value)}
-          />
-        </div>
+        <form.AppField name="rubric">
+          {(field) => (
+            <field.TextareaField
+              label={t("questions.rubricLabel")}
+              rows={3}
+              maxLength={2000}
+              placeholder={t("questions.rubricPlaceholder")}
+            />
+          )}
+        </form.AppField>
       )}
 
       {/* Image attach (any type) */}
@@ -824,38 +839,23 @@ function QuestionForm({
       </div>
 
       {/* Topic + difficulty */}
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="q-topic">{t("questions.topicLabel")}</Label>
-        <Input
-          id="q-topic"
-          maxLength={200}
-          placeholder={t("questions.topicPlaceholder")}
-          value={topic}
-          onChange={(e) => setTopic(e.target.value)}
-        />
-      </div>
-      <div className="flex flex-col gap-2">
-        <Label id="q-difficulty-label">{t("questions.difficultyLabel")}</Label>
-        <Select
-          items={difficultyItems}
-          value={difficulty}
-          onValueChange={(value) => setDifficulty(value as Difficulty)}
-        >
-          <SelectTrigger
-            aria-labelledby="q-difficulty-label"
-            className="w-full"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {difficultyItems.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <form.AppField name="topic">
+        {(field) => (
+          <field.TextField
+            label={t("questions.topicLabel")}
+            maxLength={200}
+            placeholder={t("questions.topicPlaceholder")}
+          />
+        )}
+      </form.AppField>
+      <form.AppField name="difficulty">
+        {(field) => (
+          <field.SelectField
+            label={t("questions.difficultyLabel")}
+            items={difficultyItems}
+          />
+        )}
+      </form.AppField>
 
       {error ? (
         <p className={cn("text-sm text-destructive")}>{error}</p>
@@ -869,10 +869,9 @@ function QuestionForm({
         >
           {t("common.cancel")}
         </Button>
-        <Button type="submit" disabled={pending}>
-          {pending ? <Spinner /> : null}
-          {t("common.save")}
-        </Button>
+        <form.AppForm>
+          <form.SubmitButton>{t("common.save")}</form.SubmitButton>
+        </form.AppForm>
       </DialogFooter>
     </form>
   );

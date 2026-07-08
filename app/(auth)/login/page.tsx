@@ -2,8 +2,9 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { z } from "zod";
 import { LogoMark } from "@/components/app-shell/logo-mark";
-import { Button } from "@/components/ui/button";
+import { useAppForm } from "@/components/form";
 import {
   Card,
   CardContent,
@@ -11,8 +12,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { authClient } from "@/lib/auth-client";
 import { t } from "@/lib/i18n";
@@ -31,36 +30,47 @@ function safeRedirect(value: string | null): string | null {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  // Failed sign-in is a server response, not field validation — kept local
+  // and shown above the submit button.
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
 
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    setError(null);
-    setPending(true);
-    try {
-      const result = await authClient.signIn.email({ email, password });
-      if (result.error) {
-        setError(t("auth.invalidCredentials"));
-        setPending(false);
-        return;
+  const form = useAppForm({
+    defaultValues: { email: "", password: "" },
+    validators: {
+      onSubmit: z.object({
+        email: z
+          .string()
+          .min(1, t("common.requiredField"))
+          .email(t("common.invalidValue")),
+        password: z.string().min(1, t("common.requiredField")),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      setError(null);
+      try {
+        const result = await authClient.signIn.email({
+          email: value.email,
+          password: value.password,
+        });
+        if (result.error) {
+          setError(t("auth.invalidCredentials"));
+          return;
+        }
+        // Read the role straight off the fresh session; the shell guard is the
+        // real gate (it bounces a wrong-area landing), so this only picks the
+        // starting screen. isSubmitting stays true until the navigation below
+        // unmounts the form.
+        const session = await authClient.getSession();
+        const role = session.data?.user
+          ? (session.data.user as { role?: string }).role
+          : undefined;
+        const home = role === "admin" ? "/admin" : "/teacher";
+        router.replace(safeRedirect(searchParams.get("redirect")) ?? home);
+      } catch {
+        setError(t("common.errorGeneric"));
       }
-      // Read the role straight off the fresh session; the shell guard is the
-      // real gate (it bounces a wrong-area landing), so this only picks the
-      // starting screen. Keep pending true — the navigation unmounts the form.
-      const session = await authClient.getSession();
-      const role = session.data?.user
-        ? (session.data.user as { role?: string }).role
-        : undefined;
-      const home = role === "admin" ? "/admin" : "/teacher";
-      router.replace(safeRedirect(searchParams.get("redirect")) ?? home);
-    } catch {
-      setError(t("common.errorGeneric"));
-      setPending(false);
-    }
-  }
+    },
+  });
 
   return (
     <Card className="w-full max-w-sm">
@@ -70,40 +80,48 @@ function LoginForm() {
         <CardDescription>{t("auth.loginRequired")}</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={onSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="email">{t("auth.email")}</Label>
-            <Input
-              id="email"
-              type="email"
-              dir="ltr"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="password">{t("auth.password")}</Label>
-            <Input
-              id="password"
-              type="password"
-              dir="ltr"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
+        <form
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            form.handleSubmit();
+          }}
+          className="flex flex-col gap-4"
+        >
+          <form.AppField name="email">
+            {(field) => (
+              <field.TextField
+                label={t("auth.email")}
+                type="email"
+                dir="ltr"
+                autoComplete="email"
+              />
+            )}
+          </form.AppField>
+          <form.AppField name="password">
+            {(field) => (
+              <field.TextField
+                label={t("auth.password")}
+                type="password"
+                dir="ltr"
+                autoComplete="current-password"
+              />
+            )}
+          </form.AppField>
           {error ? (
             <p role="alert" className="text-sm text-destructive">
               {error}
             </p>
           ) : null}
-          <Button type="submit" disabled={pending}>
-            {pending ? <Spinner /> : null}
-            {pending ? t("auth.signingIn") : t("auth.signIn")}
-          </Button>
+          <form.AppForm>
+            <form.Subscribe selector={(s) => s.isSubmitting}>
+              {(isSubmitting) => (
+                <form.SubmitButton>
+                  {isSubmitting ? t("auth.signingIn") : t("auth.signIn")}
+                </form.SubmitButton>
+              )}
+            </form.Subscribe>
+          </form.AppForm>
         </form>
       </CardContent>
     </Card>

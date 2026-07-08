@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { Send } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useAppForm } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
@@ -35,23 +37,12 @@ type ThreadViewProps = {
  */
 export function ThreadView({ threadId, sessionToken }: ThreadViewProps) {
   const data = useQuery(api.messages.thread, { threadId, sessionToken });
-  const send = useMutation(api.messages.send);
   const markRead = useMutation(api.messages.markRead);
 
   const ownSenderType = sessionToken === undefined ? "staff" : "student";
   const messages = data?.messages;
 
-  const [text, setText] = useState("");
-  const [pending, setPending] = useState(false);
-  const formRef = useRef<HTMLFormElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-
-  // Drop the draft when the caller switches threads without remounting.
-  const [lastThreadId, setLastThreadId] = useState(threadId);
-  if (lastThreadId !== threadId) {
-    setLastThreadId(threadId);
-    setText("");
-  }
 
   // Zero the caller's unread counter on open and again whenever a new
   // message lands while the thread is on screen. The ref keeps unrelated
@@ -73,34 +64,6 @@ export function ThreadView({ threadId, sessionToken }: ThreadViewProps) {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
-
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const trimmed = text.trim();
-    if (trimmed.length === 0 || pending) return;
-    setPending(true);
-    try {
-      await send({ threadId, text: trimmed, sessionToken });
-      setText("");
-    } catch (error) {
-      toast.error(mutationErrorText(error));
-    } finally {
-      setPending(false);
-    }
-  }
-
-  function onComposerKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (
-      event.key !== "Enter" ||
-      event.shiftKey ||
-      event.nativeEvent.isComposing
-    ) {
-      return;
-    }
-    event.preventDefault();
-    if (text.trim().length === 0) return;
-    formRef.current?.requestSubmit();
-  }
 
   return (
     <div className="flex flex-col overflow-hidden rounded-2xl border bg-card">
@@ -158,33 +121,103 @@ export function ThreadView({ threadId, sessionToken }: ThreadViewProps) {
         )}
       </div>
 
-      {/* Composer */}
-      <form
-        ref={formRef}
-        onSubmit={onSubmit}
-        className="flex items-end gap-2 border-t p-3"
-      >
-        <Textarea
-          required
-          maxLength={MAX_MESSAGE_LENGTH}
-          rows={1}
-          className="max-h-32 min-h-9 flex-1"
-          placeholder={t("messagesUi.composerPlaceholder")}
-          aria-label={t("messagesUi.composerLabel")}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={onComposerKeyDown}
-          disabled={data === undefined}
-        />
-        <Button
-          type="submit"
-          size="icon"
-          aria-label={t("messagesUi.send")}
-          disabled={pending || data === undefined || text.trim().length === 0}
-        >
-          <Send className="rtl:-scale-x-100" />
-        </Button>
-      </form>
+      {/* Composer — keyed by thread so switching threads drops the draft
+          (the old code cleared `text` on a threadId change during render). */}
+      <Composer
+        key={threadId}
+        threadId={threadId}
+        sessionToken={sessionToken}
+        disabled={data === undefined}
+      />
     </div>
+  );
+}
+
+function Composer({
+  threadId,
+  sessionToken,
+  disabled,
+}: {
+  threadId: Id<"threads">;
+  sessionToken?: string;
+  disabled: boolean;
+}) {
+  const send = useMutation(api.messages.send);
+
+  const form = useAppForm({
+    defaultValues: { text: "" },
+    validators: {
+      onSubmit: z.object({
+        text: z.string().trim().min(1, t("common.requiredField")),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      try {
+        await send({ threadId, text: value.text.trim(), sessionToken });
+        form.reset();
+      } catch (error) {
+        toast.error(mutationErrorText(error));
+      }
+    },
+  });
+
+  function onComposerKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (
+      event.key !== "Enter" ||
+      event.shiftKey ||
+      event.nativeEvent.isComposing
+    ) {
+      return;
+    }
+    event.preventDefault();
+    // Mirror the send button's gate: no empty sends, no double-submits.
+    if (form.state.isSubmitting || form.state.values.text.trim().length === 0) {
+      return;
+    }
+    void form.handleSubmit();
+  }
+
+  return (
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.handleSubmit();
+      }}
+      className="flex items-end gap-2 border-t p-3"
+    >
+      <form.AppField name="text">
+        {(field) => (
+          <Textarea
+            maxLength={MAX_MESSAGE_LENGTH}
+            rows={1}
+            className="max-h-32 min-h-9 flex-1"
+            placeholder={t("messagesUi.composerPlaceholder")}
+            aria-label={t("messagesUi.composerLabel")}
+            value={field.state.value}
+            onChange={(event) => field.handleChange(event.target.value)}
+            onKeyDown={onComposerKeyDown}
+            disabled={disabled}
+          />
+        )}
+      </form.AppField>
+      <form.Subscribe
+        selector={(s) => ({
+          isSubmitting: s.isSubmitting,
+          empty: s.values.text.trim().length === 0,
+        })}
+      >
+        {({ isSubmitting, empty }) => (
+          <Button
+            type="submit"
+            size="icon"
+            aria-label={t("messagesUi.send")}
+            disabled={isSubmitting || disabled || empty}
+          >
+            <Send className="rtl:-scale-x-100" />
+          </Button>
+        )}
+      </form.Subscribe>
+    </form>
   );
 }
