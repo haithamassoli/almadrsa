@@ -29,6 +29,7 @@ import { messagesPortal } from "./messagesPortal";
 import { library } from "./library";
 import { calendarUi } from "./calendarUi";
 import { settingsUi } from "./settingsUi";
+import { home } from "./home";
 
 // One namespace file per feature area so parallel work never edits the same
 // file. All namespaces are pre-registered here — add keys in YOUR namespace
@@ -65,4 +66,5 @@ export const ar = {
   library,
   calendarUi,
   settingsUi,
+  home,
 } as const;
