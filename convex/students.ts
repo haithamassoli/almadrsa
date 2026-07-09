@@ -7,7 +7,6 @@ import {
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireAdmin, requireStaff, type StaffUser } from "./auth";
-import { issueCodeCore } from "./codes";
 import { logAudit } from "./lib/audit";
 import { studentStatus } from "./lib/validators";
 
@@ -375,111 +374,6 @@ export const listStudents = query({
   },
 });
 
-/**
- * Single student detail + active class + live-code status. Teachers need
- * access to the student's active class; admins bypass.
- */
-export const getStudent = query({
-  args: { studentId: v.id("students") },
-  returns: v.object({
-    _id: v.id("students"),
-    firstName: v.string(),
-    lastName: v.string(),
-    guardianName: v.optional(v.string()),
-    guardianPhone: v.optional(v.string()),
-    status: studentStatus,
-    classId: v.optional(v.id("classes")),
-    className: v.optional(v.string()),
-    hasActiveCode: v.boolean(),
-    lastLoginAt: v.optional(v.number()),
-  }),
-  handler: async (ctx, args) => {
-    const staff = await requireStaff(ctx);
-    const student = await ctx.db.get("students", args.studentId);
-    if (!student) throw new ConvexError("not_found");
-    await assertStaffCanAccessStudent(ctx, staff, args.studentId);
-
-    const { classId, className } = await resolveActiveClass(
-      ctx,
-      args.studentId,
-    );
-    const activeCode = await ctx.db
-      .query("accessCodes")
-      .withIndex("by_studentId_and_status", (q) =>
-        q.eq("studentId", args.studentId).eq("status", "active"),
-      )
-      .first();
-
-    return {
-      _id: student._id,
-      firstName: student.firstName,
-      lastName: student.lastName,
-      guardianName: student.guardianName,
-      guardianPhone: student.guardianPhone,
-      status: student.status,
-      classId,
-      className,
-      hasActiveCode: activeCode !== null,
-      lastLoginAt: activeCode?.lastLoginAt,
-    };
-  },
-});
-
-/**
- * Codes-admin roster: every ACTIVE student actively enrolled in the class,
- * with whether they hold a live code and when they last logged in. Same set
- * `bulkIssueCodes` would issue to.
- */
-export const classCodesOverview = query({
-  args: { classId: v.id("classes") },
-  returns: v.array(
-    v.object({
-      studentId: v.id("students"),
-      firstName: v.string(),
-      lastName: v.string(),
-      hasActiveCode: v.boolean(),
-      lastLoginAt: v.optional(v.number()),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const staff = await requireStaff(ctx);
-    await assertStaffCanAccessClass(ctx, staff, args.classId);
-
-    const enrollments = await ctx.db
-      .query("enrollments")
-      .withIndex("by_classId_and_active", (q) =>
-        q.eq("classId", args.classId).eq("active", true),
-      )
-      .take(500);
-
-    const rows: Array<{
-      studentId: Id<"students">;
-      firstName: string;
-      lastName: string;
-      hasActiveCode: boolean;
-      lastLoginAt?: number;
-    }> = [];
-    for (const enrollment of enrollments) {
-      const student = await ctx.db.get("students", enrollment.studentId);
-      if (!student || student.status !== "active") continue;
-      const activeCode = await ctx.db
-        .query("accessCodes")
-        .withIndex("by_studentId_and_status", (q) =>
-          q.eq("studentId", enrollment.studentId).eq("status", "active"),
-        )
-        .first();
-      rows.push({
-        studentId: enrollment.studentId,
-        firstName: student.firstName,
-        lastName: student.lastName,
-        hasActiveCode: activeCode !== null,
-        lastLoginAt: activeCode?.lastLoginAt,
-      });
-    }
-    return rows;
-  },
-});
-
 // ——— Mutations (all admin-only per M2) ———
 
 /**
@@ -626,39 +520,6 @@ export const updateStudent = mutation({
       targetType: "student",
       targetId: args.studentId,
       meta: movedTo !== undefined ? { movedToClassId: movedTo } : undefined,
-    });
-    return null;
-  },
-});
-
-/**
- * Move a student to another class: deactivate every current active enrollment
- * (bounded loop) and insert a fresh active one.
- */
-export const moveStudent = mutation({
-  args: { studentId: v.id("students"), classId: v.id("classes") },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const staff = await requireAdmin(ctx);
-    const student = await ctx.db.get("students", args.studentId);
-    if (!student) throw new ConvexError("not_found");
-    const targetClass = await ctx.db.get("classes", args.classId);
-    if (!targetClass) throw new ConvexError("class_not_found");
-
-    const fromClassIds = await deactivateActiveEnrollments(ctx, args.studentId);
-    await ctx.db.insert("enrollments", {
-      studentId: args.studentId,
-      classId: args.classId,
-      active: true,
-    });
-
-    await logAudit(ctx, {
-      actorType: "staff",
-      actorId: staff.id,
-      action: "student.move",
-      targetType: "student",
-      targetId: args.studentId,
-      meta: { toClassId: args.classId, fromClassIds },
     });
     return null;
   },
@@ -859,55 +720,3 @@ export const bulkImport = mutation({
   },
 });
 
-/**
- * Rotate a fresh access code for every ACTIVE student actively enrolled in the
- * class (≤300). Delegates to `issueCodeCore` (revokes any prior code + audits
- * per student). Returns the plaintext codes — the print view's only data
- * source; they are never stored. Admin, or a teacher with access to the class.
- */
-export const bulkIssueCodes = mutation({
-  args: { classId: v.id("classes") },
-  returns: v.object({
-    items: v.array(
-      v.object({
-        studentId: v.id("students"),
-        firstName: v.string(),
-        lastName: v.string(),
-        code: v.string(),
-      }),
-    ),
-  }),
-  handler: async (ctx, args) => {
-    const staff = await requireStaff(ctx);
-    await assertStaffCanAccessClass(ctx, staff, args.classId);
-
-    const enrollments = await ctx.db
-      .query("enrollments")
-      .withIndex("by_classId_and_active", (q) =>
-        q.eq("classId", args.classId).eq("active", true),
-      )
-      .take(300);
-
-    const items: Array<{
-      studentId: Id<"students">;
-      firstName: string;
-      lastName: string;
-      code: string;
-    }> = [];
-    for (const enrollment of enrollments) {
-      const student = await ctx.db.get("students", enrollment.studentId);
-      if (!student || student.status !== "active") continue;
-      const code = await issueCodeCore(ctx, enrollment.studentId, staff.id, {
-        actorType: "staff",
-        actorId: staff.id,
-      });
-      items.push({
-        studentId: enrollment.studentId,
-        firstName: student.firstName,
-        lastName: student.lastName,
-        code,
-      });
-    }
-    return { items };
-  },
-});

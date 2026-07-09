@@ -4,8 +4,10 @@ import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { CalendarRange, CircleCheck, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useAppForm } from "@/components/form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,8 +24,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -59,56 +59,57 @@ export function TermsTab() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Term | null>(null);
-  const [name, setName] = useState("");
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
-  const [pending, setPending] = useState(false);
   const [activating, setActivating] = useState<Id<"terms"> | null>(null);
 
   const activeTerm = terms?.find((term) => term.active);
 
+  const form = useAppForm({
+    defaultValues: { name: "", start: "", end: "" },
+    validators: {
+      onSubmit: z.object({
+        name: z.string().trim().min(1, t("common.requiredField")),
+        start: z.string().min(1, t("common.requiredField")),
+        end: z.string().min(1, t("common.requiredField")),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      const startDate = Date.parse(value.start);
+      const endDate = Date.parse(value.end);
+      if (Number.isNaN(startDate) || Number.isNaN(endDate)) return;
+      if (endDate <= startDate) {
+        toast.error(t("structure.errTermDates"));
+        return;
+      }
+      const name = value.name.trim();
+      try {
+        if (editing) {
+          await updateTerm({ termId: editing._id, name, startDate, endDate });
+          toast.success(t("structure.termUpdated"));
+        } else {
+          await createTerm({ name, startDate, endDate });
+          toast.success(t("structure.termCreated"));
+        }
+        setDialogOpen(false);
+      } catch (err) {
+        toast.error(structureError(err));
+      }
+    },
+  });
+
   function openAdd() {
     setEditing(null);
-    setName("");
-    setStart("");
-    setEnd("");
+    form.reset({ name: "", start: "", end: "" });
     setDialogOpen(true);
   }
 
   function openEdit(term: Term) {
     setEditing(term);
-    setName(term.name);
-    setStart(msToInput(term.startDate));
-    setEnd(msToInput(term.endDate));
+    form.reset({
+      name: term.name,
+      start: msToInput(term.startDate),
+      end: msToInput(term.endDate),
+    });
     setDialogOpen(true);
-  }
-
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    const startDate = Date.parse(start);
-    const endDate = Date.parse(end);
-    if (!name.trim() || Number.isNaN(startDate) || Number.isNaN(endDate)) {
-      return;
-    }
-    if (endDate <= startDate) {
-      toast.error(t("structure.errTermDates"));
-      return;
-    }
-    setPending(true);
-    try {
-      if (editing) {
-        await updateTerm({ termId: editing._id, name, startDate, endDate });
-        toast.success(t("structure.termUpdated"));
-      } else {
-        await createTerm({ name, startDate, endDate });
-        toast.success(t("structure.termCreated"));
-      }
-      setDialogOpen(false);
-    } catch (err) {
-      toast.error(structureError(err));
-    } finally {
-      setPending(false);
-    }
   }
 
   async function onDelete(term: Term) {
@@ -246,39 +247,38 @@ export function TermsTab() {
               {editing ? t("structure.editTerm") : t("structure.addTerm")}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={onSubmit} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="term-name">{t("structure.termName")}</Label>
-              <Input
-                id="term-name"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
+          <form
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault();
+              form.handleSubmit();
+            }}
+            className="flex flex-col gap-4"
+          >
+            <form.AppField name="name">
+              {(field) => (
+                <field.TextField label={t("structure.termName")} />
+              )}
+            </form.AppField>
             <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="term-start">{t("structure.startDate")}</Label>
-                <Input
-                  id="term-start"
-                  type="date"
-                  dir="ltr"
-                  required
-                  value={start}
-                  onChange={(e) => setStart(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="term-end">{t("structure.endDate")}</Label>
-                <Input
-                  id="term-end"
-                  type="date"
-                  dir="ltr"
-                  required
-                  value={end}
-                  onChange={(e) => setEnd(e.target.value)}
-                />
-              </div>
+              <form.AppField name="start">
+                {(field) => (
+                  <field.TextField
+                    label={t("structure.startDate")}
+                    type="date"
+                    dir="ltr"
+                  />
+                )}
+              </form.AppField>
+              <form.AppField name="end">
+                {(field) => (
+                  <field.TextField
+                    label={t("structure.endDate")}
+                    type="date"
+                    dir="ltr"
+                  />
+                )}
+              </form.AppField>
             </div>
             <DialogFooter>
               <Button
@@ -288,10 +288,9 @@ export function TermsTab() {
               >
                 {t("common.cancel")}
               </Button>
-              <Button type="submit" disabled={pending}>
-                {pending ? <Spinner /> : null}
-                {t("common.save")}
-              </Button>
+              <form.AppForm>
+                <form.SubmitButton>{t("common.save")}</form.SubmitButton>
+              </form.AppForm>
             </DialogFooter>
           </form>
         </DialogContent>

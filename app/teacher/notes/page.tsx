@@ -4,8 +4,10 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { GraduationCap, MessageSquarePlus, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useAppForm } from "@/components/form";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,7 +36,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
 import { formatDateTime, t } from "@/lib/i18n";
 import { mutationErrorText } from "./errors";
 
@@ -73,44 +74,65 @@ function CenteredEmpty({
 
 function NoteComposer({ studentId }: { studentId: Id<"students"> }) {
   const create = useMutation(api.notes.create);
-  const [text, setText] = useState("");
-  const [pending, setPending] = useState(false);
-
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    const trimmed = text.trim();
-    if (trimmed.length === 0) return;
-    setPending(true);
-    try {
-      await create({ studentId, text: trimmed });
-      toast.success(t("notes.created"));
-      setText("");
-    } catch (error) {
-      toast.error(mutationErrorText(error));
-    } finally {
-      setPending(false);
-    }
-  }
+  const form = useAppForm({
+    defaultValues: { text: "" },
+    validators: {
+      onSubmit: z.object({
+        text: z
+          .string()
+          .trim()
+          .min(1, t("common.requiredField"))
+          .max(MAX_NOTE_LENGTH, t("common.invalidValue")),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      const trimmed = value.text.trim();
+      if (trimmed.length === 0) return;
+      try {
+        await create({ studentId, text: trimmed });
+        toast.success(t("notes.created"));
+        // Composer clears after a successful send.
+        form.reset();
+      } catch (error) {
+        toast.error(mutationErrorText(error));
+      }
+    },
+  });
 
   return (
     <Card className="rounded-2xl">
       <CardContent>
-        <form onSubmit={onSubmit} className="flex flex-col gap-3">
-          <Label htmlFor="note-text">{t("notes.composerTitle")}</Label>
-          <Textarea
-            id="note-text"
-            required
-            maxLength={MAX_NOTE_LENGTH}
-            rows={3}
-            placeholder={t("notes.composerPlaceholder")}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-          />
+        <form
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            form.handleSubmit();
+          }}
+          className="flex flex-col gap-3"
+        >
+          <form.AppField name="text">
+            {(field) => (
+              <field.TextareaField
+                label={t("notes.composerTitle")}
+                rows={3}
+                maxLength={MAX_NOTE_LENGTH}
+                placeholder={t("notes.composerPlaceholder")}
+              />
+            )}
+          </form.AppField>
           <div className="flex justify-end">
-            <Button type="submit" disabled={pending || text.trim().length === 0}>
-              <MessageSquarePlus />
-              {t("notes.addNote")}
-            </Button>
+            <form.AppForm>
+              <form.Subscribe
+                selector={(s) => s.values.text.trim().length === 0}
+              >
+                {(isEmpty) => (
+                  <form.SubmitButton disabled={isEmpty}>
+                    <MessageSquarePlus />
+                    {t("notes.addNote")}
+                  </form.SubmitButton>
+                )}
+              </form.Subscribe>
+            </form.AppForm>
           </div>
         </form>
       </CardContent>

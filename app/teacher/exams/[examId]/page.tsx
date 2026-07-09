@@ -16,8 +16,10 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { numberString, useAppForm } from "@/components/form";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,10 +48,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
   TableBody,
@@ -717,67 +716,70 @@ function OverrideForm({
   onClose: () => void;
 }) {
   const overrideScore = useMutation(api.exams.overrideScore);
-  const [score, setScore] = useState(
-    initialScore !== undefined ? String(initialScore) : "",
-  );
-  const [reason, setReason] = useState("");
-  const [pending, setPending] = useState(false);
-
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    setPending(true);
-    try {
-      await overrideScore({
-        attemptId,
-        score: Number(score),
-        reason: reason.trim() || undefined,
-      });
-      toast.success(t("exams.overrideSaved"));
-      onClose();
-    } catch (error) {
-      toast.error(mutationErrorText(error));
-    } finally {
-      setPending(false);
-    }
-  }
+  const form = useAppForm({
+    defaultValues: {
+      score: initialScore !== undefined ? String(initialScore) : "",
+      reason: "",
+    },
+    validators: {
+      onSubmit: z.object({
+        score: numberString({ min: 0, max: maxScore }),
+        reason: z.string(),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      try {
+        await overrideScore({
+          attemptId,
+          score: Number(value.score),
+          reason: value.reason.trim() || undefined,
+        });
+        toast.success(t("exams.overrideSaved"));
+        onClose();
+      } catch (error) {
+        toast.error(mutationErrorText(error));
+      }
+    },
+  });
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="override-score">
-          {t("exams.overrideScoreLabel", { max: formatNumber(maxScore) })}
-        </Label>
-        <Input
-          id="override-score"
-          type="number"
-          dir="ltr"
-          required
-          min={0}
-          max={maxScore}
-          step="any"
-          value={score}
-          onChange={(e) => setScore(e.target.value)}
-        />
-      </div>
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="override-reason">
-          {t("exams.overrideReasonLabel")}
-        </Label>
-        <Input
-          id="override-reason"
-          maxLength={200}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-        />
-      </div>
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.handleSubmit();
+      }}
+      className="flex flex-col gap-4"
+    >
+      <form.AppField name="score">
+        {(field) => (
+          <field.TextField
+            label={t("exams.overrideScoreLabel", {
+              max: formatNumber(maxScore),
+            })}
+            type="number"
+            dir="ltr"
+            min={0}
+            max={maxScore}
+            step="any"
+          />
+        )}
+      </form.AppField>
+      <form.AppField name="reason">
+        {(field) => (
+          <field.TextField
+            label={t("exams.overrideReasonLabel")}
+            maxLength={200}
+          />
+        )}
+      </form.AppField>
       <DialogFooter className="mt-2">
         <Button type="button" variant="outline" onClick={onClose}>
           {t("common.cancel")}
         </Button>
-        <Button type="submit" disabled={pending}>
-          {pending ? <Spinner /> : null}
-          {t("common.save")}
-        </Button>
+        <form.AppForm>
+          <form.SubmitButton>{t("common.save")}</form.SubmitButton>
+        </form.AppForm>
       </DialogFooter>
     </form>
   );

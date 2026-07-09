@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist_Mono } from "next/font/google";
 import { thmanyahSans } from "@/fonts";
 import { Providers } from "@/components/providers";
+import { RegisterSW } from "@/components/register-sw";
 import { getToken } from "@/lib/auth-server";
 import { t } from "@/lib/i18n";
 import "./globals.css";
@@ -11,12 +12,31 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const appName = t("common.appName");
+const tagline = t("common.tagline");
+const title = `${appName} — ${tagline}`;
+
 export const metadata: Metadata = {
+  // Absolute base for og:image and other resolved URLs. SITE_URL is the
+  // production origin (see docs/deploy.md); localhost is the dev fallback.
+  metadataBase: new URL(process.env.SITE_URL ?? "http://localhost:3000"),
   title: {
-    default: `${t("common.appName")} — ${t("common.tagline")}`,
-    template: `%s · ${t("common.appName")}`,
+    default: title,
+    template: `%s · ${appName}`,
   },
-  description: t("common.tagline"),
+  description: tagline,
+  openGraph: {
+    type: "website",
+    siteName: appName,
+    locale: "ar_SA",
+    title,
+    description: tagline,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title,
+    description: tagline,
+  },
 };
 
 export const viewport: Viewport = {
@@ -40,6 +60,7 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col">
+        <RegisterSW />
         {/* Dark mode via next-themes (attribute="class"); it injects its own
             pre-paint no-flash script. */}
         <Providers initialToken={initialToken}>{children}</Providers>

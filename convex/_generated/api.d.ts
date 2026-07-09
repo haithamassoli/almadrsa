@@ -32,6 +32,7 @@ import type * as lib_channels from "../lib/channels.js";
 import type * as lib_crypto from "../lib/crypto.js";
 import type * as lib_dates from "../lib/dates.js";
 import type * as lib_grading from "../lib/grading.js";
+import type * as lib_joins from "../lib/joins.js";
 import type * as lib_notify from "../lib/notify.js";
 import type * as lib_shuffle from "../lib/shuffle.js";
 import type * as lib_validators from "../lib/validators.js";
@@ -81,6 +82,7 @@ declare const fullApi: ApiFromModules<{
   "lib/crypto": typeof lib_crypto;
   "lib/dates": typeof lib_dates;
   "lib/grading": typeof lib_grading;
+  "lib/joins": typeof lib_joins;
   "lib/notify": typeof lib_notify;
   "lib/shuffle": typeof lib_shuffle;
   "lib/validators": typeof lib_validators;

@@ -1,13 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
+import { useStore } from "@tanstack/react-form";
 import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { numberString, useAppForm } from "@/components/form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -21,9 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
-import { Switch } from "@/components/ui/switch";
-import { formatNumber, t, type MessageKey } from "@/lib/i18n";
+import { formatNumber, msToLocalInput, t, type MessageKey } from "@/lib/i18n";
 import { mutationErrorText } from "./errors";
 
 export type ExamStatus = "draft" | "published" | "closed";
@@ -134,15 +135,6 @@ const DIFFICULTY_CLASS: Record<Difficulty, string> = {
 
 const ALL = "all";
 
-/** ms → <input type="datetime-local"> value (local wall time, minutes). */
-function msToLocalInput(ms: number): string {
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-    d.getHours(),
-  )}:${pad(d.getMinutes())}`;
-}
-
 // ——— M15: version-rule drafts (unique per-student exams) ———
 
 /** One editable rule row; ALL sentinels mean "any topic/difficulty". */
@@ -218,28 +210,59 @@ export function ExamForm({ exam }: { exam?: ExamDetail }) {
   const updateExam = useMutation(api.exams.update);
   const classes = useQuery(api.lessons.listMyClasses, {});
 
-  const [title, setTitle] = useState(exam?.title ?? "");
-  const [classId, setClassId] = useState<string | null>(exam?.classId ?? null);
-  const [subjectId, setSubjectId] = useState<string | null>(
-    exam?.subjectId ?? null,
-  );
-  const [startLocal, setStartLocal] = useState(
-    exam ? msToLocalInput(exam.windowStart) : "",
-  );
-  const [endLocal, setEndLocal] = useState(
-    exam ? msToLocalInput(exam.windowEnd) : "",
-  );
-  const [timeLimit, setTimeLimit] = useState(
-    exam ? String(exam.timeLimitMinutes) : "30",
-  );
-  // M8 — per-student shuffle; default ON (server treats undefined as true).
-  const [shuffle, setShuffle] = useState(exam ? exam.shuffle !== false : true);
-  // M15 — one-way navigation while taking the exam.
-  const [noBacktrack, setNoBacktrack] = useState(exam?.noBacktrack === true);
-  // M15 — unique per-student versions sampled from the bank by rules.
-  const [versioned, setVersioned] = useState(
-    (exam?.versionRules?.length ?? 0) > 0,
-  );
+  // The real submit work lives in submitRef, assigned in an effect below.
+  // Defining it inline here would close over the `rules`/`selected` useState,
+  // which the React Compiler then treats as mutable across the whole body and
+  // can't memoize past. Keeping this closure ref-only avoids that.
+  const submitRef = useRef<(() => Promise<void>) | null>(null);
+
+  const form = useAppForm({
+    defaultValues: {
+      title: exam?.title ?? "",
+      classId: (exam?.classId ?? null) as string | null,
+      subjectId: (exam?.subjectId ?? null) as string | null,
+      startLocal: exam ? msToLocalInput(exam.windowStart) : "",
+      endLocal: exam ? msToLocalInput(exam.windowEnd) : "",
+      timeLimit: exam ? String(exam.timeLimitMinutes) : "30",
+      // M8 — per-student shuffle; default ON (server treats undefined as true).
+      shuffle: exam ? exam.shuffle !== false : true,
+      // M15 — one-way navigation while taking the exam.
+      noBacktrack: exam?.noBacktrack === true,
+      // M15 — unique per-student versions sampled from the bank by rules.
+      versioned: (exam?.versionRules?.length ?? 0) > 0,
+    },
+    validators: {
+      onSubmit: z.object({
+        title: z
+          .string()
+          .trim()
+          .min(1, t("common.requiredField"))
+          .max(200, t("common.invalidValue")),
+        // class/subject presence + window ordering are cross-cutting and stay
+        // as onSubmit toasts (unchanged messages), like the rest of the checks.
+        classId: z.string().nullable(),
+        subjectId: z.string().nullable(),
+        startLocal: z.string().min(1, t("common.requiredField")),
+        endLocal: z.string().min(1, t("common.requiredField")),
+        timeLimit: numberString({ int: true, min: 1, max: 300 }),
+        shuffle: z.boolean(),
+        noBacktrack: z.boolean(),
+        versioned: z.boolean(),
+      }),
+    },
+    onSubmit: async () => {
+      await submitRef.current?.();
+    },
+  });
+
+  // Reactive reads — these drive the bank query, the derived option lists, and
+  // the versioned/manual section toggle, so they must re-render on change.
+  const classId = useStore(form.store, (s) => s.values.classId);
+  const subjectId = useStore(form.store, (s) => s.values.subjectId);
+  const versioned = useStore(form.store, (s) => s.values.versioned);
+
+  // M15 — version-rule drafts and the manual question selection are not scalar
+  // form fields (a dynamic array and an id→marks map), so they stay local.
   const [rules, setRules] = useState<Array<RuleDraft>>(() =>
     exam?.versionRules !== undefined && exam.versionRules.length > 0
       ? exam.versionRules.map((rule) => ({
@@ -257,7 +280,6 @@ export function ExamForm({ exam }: { exam?: ExamDetail }) {
       (exam?.questions ?? []).map((q) => [q.questionId, String(q.marks)]),
     ),
   );
-  const [pending, setPending] = useState(false);
 
   // Quick filters over the bank list.
   const [topicFilter, setTopicFilter] = useState(ALL);
@@ -372,13 +394,123 @@ export function ExamForm({ exam }: { exam?: ExamDetail }) {
     ),
   );
 
+  // Real submit logic, kept out of the form config so it doesn't capture the
+  // rules/selected useState in render phase (see submitRef). The effect re-runs
+  // each render so the ref always holds the latest closure; a submit only fires
+  // after a committed render, so it reads current values.
+  useEffect(() => {
+    submitRef.current = async () => {
+      const value = form.state.values;
+      if (!value.classId || !value.subjectId) {
+        toast.error(t("exams.errMissingClassSubject"));
+        return;
+      }
+      const windowStart = new Date(value.startLocal).getTime();
+      const windowEnd = new Date(value.endLocal).getTime();
+      if (
+        !Number.isFinite(windowStart) ||
+        !Number.isFinite(windowEnd) ||
+        windowStart >= windowEnd
+      ) {
+        toast.error(t("exams.errWindowOrder"));
+        return;
+      }
+      let questionsPayload: Array<{
+        questionId: Id<"questions">;
+        marks: number;
+      }>;
+      let versionRulesPayload: Array<VersionRule> = [];
+      if (value.versioned) {
+        // M15 — version-ruled exam: the rules replace the manual selection.
+        versionRulesPayload = rules.map((rule) => ({
+          topic: rule.topic === ALL ? undefined : rule.topic,
+          difficulty:
+            rule.difficulty === ALL
+              ? undefined
+              : (rule.difficulty as Difficulty),
+          count: Number(rule.count),
+          marksEach: Number(rule.marksEach),
+        }));
+        if (
+          versionRulesPayload.some(
+            (rule) =>
+              !Number.isInteger(rule.count) ||
+              rule.count < 1 ||
+              rule.count > 50 ||
+              !(rule.marksEach > 0) ||
+              rule.marksEach > 100,
+          )
+        ) {
+          toast.error(t("exams.errRuleValues"));
+          return;
+        }
+        questionsPayload = deriveFallbackQuestions(
+          questions ?? [],
+          versionRulesPayload,
+        );
+        // The server requires ≥1 fallback question even for versioned exams —
+        // an empty bank (or none matching any rule) cannot be saved.
+        if (questionsPayload.length === 0) {
+          toast.error(t("exams.errInsufficientBank"));
+          return;
+        }
+      } else {
+        if (selectedCount === 0) {
+          toast.error(t("exams.errNoQuestionsSelected"));
+          return;
+        }
+        questionsPayload = validSelected.map(([id, marks]) => ({
+          questionId: id as Id<"questions">,
+          marks: Number(marks),
+        }));
+        // Filtered-out rows unmount their inputs, so native min/max validation
+        // cannot cover every selected question — recheck the whole selection.
+        if (questionsPayload.some((q) => !(q.marks > 0) || q.marks > 100)) {
+          toast.error(t("exams.errMarksRange"));
+          return;
+        }
+      }
+
+      const payload = {
+        title: value.title.trim(),
+        classId: value.classId as Id<"classes">,
+        subjectId: value.subjectId as Id<"subjects">,
+        questions: questionsPayload,
+        windowStart,
+        windowEnd,
+        timeLimitMinutes: Number(value.timeLimit),
+        shuffle: value.shuffle,
+        noBacktrack: value.noBacktrack,
+        // [] clears on update and normalizes to "no rules" on create.
+        versionRules: versionRulesPayload,
+      };
+      try {
+        if (exam) {
+          await updateExam({ examId: exam._id, ...payload });
+          toast.success(t("exams.updated"));
+          router.push(`/teacher/exams/${exam._id}`);
+        } else {
+          const examId = await createExam(payload);
+          toast.success(t("exams.createdDraft"));
+          router.push(`/teacher/exams/${examId}`);
+        }
+        // Keep the submit button disabled through the client navigation that
+        // unmounts this form (mirrors the old "pending stays true").
+        await new Promise<void>(() => {});
+      } catch (error) {
+        toast.error(mutationErrorText(error));
+      }
+    };
+  });
+
+  // SelectField applies the new classId before these run; `subjectId`/`classId`
+  // here are the pre-change values (this render's closure).
   function onClassChange(value: string | null) {
-    setClassId(value);
     const next = (classes ?? []).find((c) => c.classId === value);
     // Same-grade classes share subjects; otherwise the subject (and with it
     // the whole question selection) no longer applies.
     if (!next?.subjects.some((s) => s.subjectId === subjectId)) {
-      setSubjectId(null);
+      form.setFieldValue("subjectId", null);
       setSelected({});
       setTopicFilter(ALL);
       resetRuleTopics();
@@ -387,7 +519,6 @@ export function ExamForm({ exam }: { exam?: ExamDetail }) {
 
   function onSubjectChange(value: string | null) {
     if (value === subjectId) return;
-    setSubjectId(value);
     setSelected({});
     setTopicFilter(ALL);
     resetRuleTopics();
@@ -429,260 +560,122 @@ export function ExamForm({ exam }: { exam?: ExamDetail }) {
     setSelected((prev) => ({ ...prev, [id]: value }));
   }
 
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!classId || !subjectId) {
-      toast.error(t("exams.errMissingClassSubject"));
-      return;
-    }
-    const windowStart = new Date(startLocal).getTime();
-    const windowEnd = new Date(endLocal).getTime();
-    if (
-      !Number.isFinite(windowStart) ||
-      !Number.isFinite(windowEnd) ||
-      windowStart >= windowEnd
-    ) {
-      toast.error(t("exams.errWindowOrder"));
-      return;
-    }
-    let questionsPayload: Array<{ questionId: Id<"questions">; marks: number }>;
-    let versionRulesPayload: Array<VersionRule> = [];
-    if (versioned) {
-      // M15 — version-ruled exam: the rules replace the manual selection.
-      versionRulesPayload = rules.map((rule) => ({
-        topic: rule.topic === ALL ? undefined : rule.topic,
-        difficulty:
-          rule.difficulty === ALL
-            ? undefined
-            : (rule.difficulty as Difficulty),
-        count: Number(rule.count),
-        marksEach: Number(rule.marksEach),
-      }));
-      if (
-        versionRulesPayload.some(
-          (rule) =>
-            !Number.isInteger(rule.count) ||
-            rule.count < 1 ||
-            rule.count > 50 ||
-            !(rule.marksEach > 0) ||
-            rule.marksEach > 100,
-        )
-      ) {
-        toast.error(t("exams.errRuleValues"));
-        return;
-      }
-      questionsPayload = deriveFallbackQuestions(
-        questions ?? [],
-        versionRulesPayload,
-      );
-      // The server requires ≥1 fallback question even for versioned exams —
-      // an empty bank (or none matching any rule) cannot be saved.
-      if (questionsPayload.length === 0) {
-        toast.error(t("exams.errInsufficientBank"));
-        return;
-      }
-    } else {
-      if (selectedCount === 0) {
-        toast.error(t("exams.errNoQuestionsSelected"));
-        return;
-      }
-      questionsPayload = validSelected.map(([id, marks]) => ({
-        questionId: id as Id<"questions">,
-        marks: Number(marks),
-      }));
-      // Filtered-out rows unmount their inputs, so native min/max validation
-      // cannot cover every selected question — recheck the whole selection.
-      if (questionsPayload.some((q) => !(q.marks > 0) || q.marks > 100)) {
-        toast.error(t("exams.errMarksRange"));
-        return;
-      }
-    }
-
-    const payload = {
-      title: title.trim(),
-      classId: classId as Id<"classes">,
-      subjectId: subjectId as Id<"subjects">,
-      questions: questionsPayload,
-      windowStart,
-      windowEnd,
-      timeLimitMinutes: Number(timeLimit),
-      shuffle,
-      noBacktrack,
-      // [] clears on update and normalizes to "no rules" on create.
-      versionRules: versionRulesPayload,
-    };
-    setPending(true);
-    try {
-      if (exam) {
-        await updateExam({ examId: exam._id, ...payload });
-        toast.success(t("exams.updated"));
-        router.push(`/teacher/exams/${exam._id}`);
-      } else {
-        const examId = await createExam(payload);
-        toast.success(t("exams.createdDraft"));
-        router.push(`/teacher/exams/${examId}`);
-      }
-      // pending stays true through the navigation.
-    } catch (error) {
-      toast.error(mutationErrorText(error));
-      setPending(false);
-    }
-  }
-
   return (
-    <form onSubmit={onSubmit} className="flex flex-1 flex-col gap-6">
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.handleSubmit();
+      }}
+      className="flex flex-1 flex-col gap-6"
+    >
       {/* Exam settings */}
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="flex flex-col gap-2 md:col-span-2">
-          <Label htmlFor="exam-title">{t("exams.fieldTitle")}</Label>
-          <Input
-            id="exam-title"
-            required
-            maxLength={200}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-        </div>
+        <form.AppField name="title">
+          {(field) => (
+            <field.TextField
+              label={t("exams.fieldTitle")}
+              maxLength={200}
+              className="md:col-span-2"
+            />
+          )}
+        </form.AppField>
 
-        <div className="flex flex-col gap-2">
-          <Label id="exam-class-label">{t("exams.fieldClass")}</Label>
-          <Select
-            items={classItems}
-            value={classId}
-            onValueChange={(value) =>
-              onClassChange((value as string | null) ?? null)
-            }
-            disabled={classes === undefined}
-          >
-            <SelectTrigger className="w-full" aria-labelledby="exam-class-label">
-              <SelectValue placeholder={t("exams.selectClass")} />
-            </SelectTrigger>
-            <SelectContent>
-              {classItems.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <form.AppField name="classId">
+          {(field) => (
+            <field.SelectField
+              label={t("exams.fieldClass")}
+              placeholder={t("exams.selectClass")}
+              items={classItems}
+              disabled={classes === undefined}
+              onValueChange={onClassChange}
+            />
+          )}
+        </form.AppField>
 
-        <div className="flex flex-col gap-2">
-          <Label id="exam-subject-label">{t("exams.fieldSubject")}</Label>
-          <Select
-            items={subjectItems}
-            value={subjectId}
-            onValueChange={(value) =>
-              onSubjectChange((value as string | null) ?? null)
-            }
-            disabled={classId === null}
-          >
-            <SelectTrigger
-              className="w-full"
-              aria-labelledby="exam-subject-label"
-            >
-              <SelectValue placeholder={t("exams.selectSubject")} />
-            </SelectTrigger>
-            <SelectContent>
-              {subjectItems.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <form.AppField name="subjectId">
+          {(field) => (
+            <field.SelectField
+              label={t("exams.fieldSubject")}
+              placeholder={t("exams.selectSubject")}
+              items={subjectItems}
+              disabled={classId === null}
+              onValueChange={onSubjectChange}
+            />
+          )}
+        </form.AppField>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="exam-window-start">{t("exams.fieldWindowStart")}</Label>
-          <Input
-            id="exam-window-start"
-            type="datetime-local"
-            dir="ltr"
-            required
-            value={startLocal}
-            onChange={(e) => setStartLocal(e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="exam-window-end">{t("exams.fieldWindowEnd")}</Label>
-          <Input
-            id="exam-window-end"
-            type="datetime-local"
-            dir="ltr"
-            required
-            min={startLocal || undefined}
-            value={endLocal}
-            onChange={(e) => setEndLocal(e.target.value)}
-          />
-        </div>
+        <form.AppField name="startLocal">
+          {(field) => (
+            <field.TextField
+              label={t("exams.fieldWindowStart")}
+              type="datetime-local"
+              dir="ltr"
+            />
+          )}
+        </form.AppField>
+        {/* End's picker min tracks the live start value. */}
+        <form.Subscribe selector={(s) => s.values.startLocal}>
+          {(startLocal) => (
+            <form.AppField name="endLocal">
+              {(field) => (
+                <field.TextField
+                  label={t("exams.fieldWindowEnd")}
+                  type="datetime-local"
+                  dir="ltr"
+                  min={startLocal || undefined}
+                />
+              )}
+            </form.AppField>
+          )}
+        </form.Subscribe>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="exam-time-limit">{t("exams.fieldTimeLimit")}</Label>
-          <Input
-            id="exam-time-limit"
-            type="number"
-            dir="ltr"
-            inputMode="numeric"
-            required
-            min={1}
-            max={300}
-            step={1}
-            value={timeLimit}
-            onChange={(e) => setTimeLimit(e.target.value)}
-          />
-        </div>
+        <form.AppField name="timeLimit">
+          {(field) => (
+            <field.TextField
+              label={t("exams.fieldTimeLimit")}
+              type="number"
+              dir="ltr"
+              inputMode="numeric"
+              min={1}
+              max={300}
+              step={1}
+            />
+          )}
+        </form.AppField>
 
         {/* M8 — per-student question/option shuffle */}
-        <div className="flex items-center justify-between gap-3 rounded-xl border p-3 md:col-span-2">
-          <div className="flex flex-col gap-0.5">
-            <Label htmlFor="exam-shuffle">{t("exams.fieldShuffle")}</Label>
-            <p className="text-xs text-muted-foreground">
-              {t("exams.shuffleHint")}
-            </p>
-          </div>
-          <Switch
-            id="exam-shuffle"
-            checked={shuffle}
-            onCheckedChange={(checked) => setShuffle(checked)}
-          />
-        </div>
+        <form.AppField name="shuffle">
+          {(field) => (
+            <field.SwitchField
+              label={t("exams.fieldShuffle")}
+              hint={t("exams.shuffleHint")}
+              className="md:col-span-2"
+            />
+          )}
+        </form.AppField>
       </div>
 
       {/* M15 — security & integrity */}
       <section className="flex flex-col gap-3">
         <h2 className="text-base font-bold">{t("exams.securityTitle")}</h2>
         <div className="grid gap-3 md:grid-cols-2">
-          <div className="flex items-center justify-between gap-3 rounded-xl border p-3">
-            <div className="flex flex-col gap-0.5">
-              <Label htmlFor="exam-no-backtrack">
-                {t("exams.fieldNoBacktrack")}
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                {t("exams.noBacktrackHint")}
-              </p>
-            </div>
-            <Switch
-              id="exam-no-backtrack"
-              checked={noBacktrack}
-              onCheckedChange={(checked) => setNoBacktrack(checked)}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-3 rounded-xl border p-3">
-            <div className="flex flex-col gap-0.5">
-              <Label htmlFor="exam-versioned">
-                {t("exams.fieldVersioned")}
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                {t("exams.versionedHint")}
-              </p>
-            </div>
-            <Switch
-              id="exam-versioned"
-              checked={versioned}
-              onCheckedChange={(checked) => setVersioned(checked)}
-            />
-          </div>
+          <form.AppField name="noBacktrack">
+            {(field) => (
+              <field.SwitchField
+                label={t("exams.fieldNoBacktrack")}
+                hint={t("exams.noBacktrackHint")}
+              />
+            )}
+          </form.AppField>
+          <form.AppField name="versioned">
+            {(field) => (
+              <field.SwitchField
+                label={t("exams.fieldVersioned")}
+                hint={t("exams.versionedHint")}
+              />
+            )}
+          </form.AppField>
         </div>
       </section>
 
@@ -877,13 +870,13 @@ export function ExamForm({ exam }: { exam?: ExamDetail }) {
           >
             {t("common.cancel")}
           </Button>
-          <Button
-            type="submit"
-            disabled={pending || (subjectId !== null && questions === undefined)}
-          >
-            {pending ? <Spinner /> : null}
-            {exam ? t("exams.saveChanges") : t("exams.saveDraft")}
-          </Button>
+          <form.AppForm>
+            <form.SubmitButton
+              disabled={subjectId !== null && questions === undefined}
+            >
+              {exam ? t("exams.saveChanges") : t("exams.saveDraft")}
+            </form.SubmitButton>
+          </form.AppForm>
         </div>
       </div>
     </form>

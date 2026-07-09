@@ -10,7 +10,7 @@ import { requireAdmin, requireTeacher } from "./auth";
 import { requireStudentAccount } from "./studentAuth";
 import { assertStaffCanAccessClass } from "./students";
 import { logAudit } from "./lib/audit";
-import { round2, sumManualScores } from "./lib/grading";
+import { effectiveScore } from "./lib/grading";
 import type { AttendanceStatus } from "./lib/validators";
 
 /**
@@ -575,11 +575,7 @@ export const myProgress = query({
     const essayByExam = new Map<Id<"exams">, boolean>();
     for (const attempt of attempts) {
       if (attempt.status !== "submitted" || attempt.maxScore <= 0) continue;
-      const effective =
-        attempt.overrideScore ??
-        round2(
-          (attempt.autoScore ?? 0) + sumManualScores(attempt.manualScores),
-        );
+      const effective = effectiveScore(attempt);
       if (effective !== attempt.maxScore) continue;
       if (attempt.gradedAt === undefined) {
         let referencesEssay: boolean;

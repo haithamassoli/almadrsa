@@ -25,11 +25,15 @@
 
 ```bash
 npm run dev:backend   # convex dev (watches convex/)
-npm run dev           # next dev on http://localhost:3001
+npm run dev           # next dev on http://localhost:3000
 ```
 
-Port 3001 is pinned (3000 is commonly taken on this machine); `SITE_URL` on
-the Convex dev deployment points there.
+`next dev` serves on `http://localhost:3000`. The Convex **dev** deployment's
+`SITE_URL` must match the origin the browser actually loads, or Better Auth
+rejects logins (`convex/auth.ts` `trustedOrigins` + `convex/http.ts` CORS both
+compare against `SITE_URL`). If port 3000 is already taken and `next dev` falls
+back to another port, either free 3000 or set the dev `SITE_URL` to the port in
+use.
 
 ## Backups
 

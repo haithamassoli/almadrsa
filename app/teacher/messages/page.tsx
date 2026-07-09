@@ -5,8 +5,10 @@ import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { ArrowRight, MessagesSquare, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useAppForm } from "@/components/form";
 import { ThreadView } from "@/components/thread-view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,7 +36,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import { formatDateTime, formatNumber, t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { mutationErrorText } from "./errors";
@@ -99,14 +100,32 @@ function NewThreadForm({
   onOpenChange: (open: boolean) => void;
 }) {
   const classes = useQuery(api.lessons.listMyClasses, {});
+  // Ephemeral filter that narrows the student list; never submitted itself.
   const [classId, setClassId] = useState<Id<"classes"> | null>(null);
-  const [studentId, setStudentId] = useState<Id<"students"> | null>(null);
   const students = useQuery(
     api.students.listStudents,
     classId ? { classId, status: "active" } : "skip",
   );
   const openThread = useMutation(api.messages.openThread);
-  const [pending, setPending] = useState(false);
+
+  const form = useAppForm({
+    defaultValues: { studentId: null as string | null },
+    validators: {
+      onSubmit: z.object({ studentId: z.string().nullable() }),
+    },
+    onSubmit: async ({ value }) => {
+      if (!value.studentId) return;
+      try {
+        const threadId = await openThread({
+          studentId: value.studentId as Id<"students">,
+        });
+        onOpened(threadId);
+        onOpenChange(false);
+      } catch (error) {
+        toast.error(mutationErrorText(error));
+      }
+    },
+  });
 
   const classItems = useMemo(
     () =>
@@ -125,23 +144,15 @@ function NewThreadForm({
     [students],
   );
 
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!studentId || pending) return;
-    setPending(true);
-    try {
-      const threadId = await openThread({ studentId });
-      onOpened(threadId);
-      onOpenChange(false);
-    } catch (error) {
-      toast.error(mutationErrorText(error));
-    } finally {
-      setPending(false);
-    }
-  }
-
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4">
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.handleSubmit();
+      }}
+      className="flex flex-col gap-4"
+    >
       <div className="flex flex-col gap-2">
         <Label id="messages-class-label">{t("messagesUi.classLabel")}</Label>
         <Select
@@ -149,7 +160,7 @@ function NewThreadForm({
           value={classId}
           onValueChange={(value) => {
             setClassId((value as Id<"classes"> | null) ?? null);
-            setStudentId(null);
+            form.setFieldValue("studentId", null);
           }}
           disabled={classes === undefined}
         >
@@ -169,33 +180,16 @@ function NewThreadForm({
         </Select>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <Label id="messages-student-label">
-          {t("messagesUi.studentLabel")}
-        </Label>
-        <Select
-          items={studentItems}
-          value={studentId}
-          onValueChange={(value) =>
-            setStudentId((value as Id<"students"> | null) ?? null)
-          }
-          disabled={!classId || students === undefined}
-        >
-          <SelectTrigger
-            className="w-full"
-            aria-labelledby="messages-student-label"
-          >
-            <SelectValue placeholder={t("messagesUi.selectStudent")} />
-          </SelectTrigger>
-          <SelectContent>
-            {studentItems.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <form.AppField name="studentId">
+        {(field) => (
+          <field.SelectField
+            label={t("messagesUi.studentLabel")}
+            placeholder={t("messagesUi.selectStudent")}
+            items={studentItems}
+            disabled={!classId || students === undefined}
+          />
+        )}
+      </form.AppField>
 
       <DialogFooter className="mt-2">
         <Button
@@ -205,10 +199,15 @@ function NewThreadForm({
         >
           {t("common.cancel")}
         </Button>
-        <Button type="submit" disabled={pending || !studentId}>
-          {pending ? <Spinner /> : null}
-          {t("messagesUi.startConversation")}
-        </Button>
+        <form.AppForm>
+          <form.Subscribe selector={(s) => !s.values.studentId}>
+            {(noStudent) => (
+              <form.SubmitButton disabled={noStudent}>
+                {t("messagesUi.startConversation")}
+              </form.SubmitButton>
+            )}
+          </form.Subscribe>
+        </form.AppForm>
       </DialogFooter>
     </form>
   );

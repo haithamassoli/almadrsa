@@ -4,8 +4,10 @@ import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { Plus, UserCheck } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useAppForm } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -30,7 +32,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
   TableBody,
@@ -65,29 +66,37 @@ export function AssignmentsTab() {
   const deleteAssignment = useMutation(api.academics.deleteAssignment);
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [teacherId, setTeacherId] = useState<string | null>(null);
-  const [subjectId, setSubjectId] = useState<Id<"subjects"> | null>(null);
-  const [pending, setPending] = useState(false);
+
+  const form = useAppForm({
+    defaultValues: {
+      teacherId: null as string | null,
+      subjectId: null as string | null,
+    },
+    validators: {
+      onSubmit: z.object({
+        teacherId: z.string().nullable(),
+        subjectId: z.string().nullable(),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      if (!classId || !value.teacherId || !value.subjectId) return;
+      try {
+        await createAssignment({
+          teacherId: value.teacherId,
+          subjectId: value.subjectId as Id<"subjects">,
+          classId,
+        });
+        toast.success(t("structure.assignmentCreated"));
+        setDialogOpen(false);
+      } catch (err) {
+        toast.error(structureError(err));
+      }
+    },
+  });
 
   function openAdd() {
-    setTeacherId(null);
-    setSubjectId(null);
+    form.reset({ teacherId: null, subjectId: null });
     setDialogOpen(true);
-  }
-
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!classId || !teacherId || !subjectId) return;
-    setPending(true);
-    try {
-      await createAssignment({ teacherId, subjectId, classId });
-      toast.success(t("structure.assignmentCreated"));
-      setDialogOpen(false);
-    } catch (err) {
-      toast.error(structureError(err));
-    } finally {
-      setPending(false);
-    }
   }
 
   async function onDelete(assignmentId: Id<"teacherAssignments">) {
@@ -217,68 +226,74 @@ export function AssignmentsTab() {
               {t("structure.noSubjectsForClass")}
             </p>
           ) : (
-            <form onSubmit={onSubmit} className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <Label>{t("structure.teacher")}</Label>
-                <Select
-                  items={(teachers ?? []).map((teacher) => ({
-                    label: teacher.name,
-                    value: teacher.id,
-                  }))}
-                  value={teacherId}
-                  onValueChange={(next) => {
-                    if (next) setTeacherId(next as string);
-                  }}
-                >
-                  <SelectTrigger
-                    className="w-full"
-                    aria-label={t("structure.selectTeacher")}
-                  >
-                    <SelectValue
-                      placeholder={t("structure.selectTeacher")}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(teachers ?? []).map((teacher) => (
-                      <SelectItem key={teacher.id} value={teacher.id}>
-                        {teacher.name}
-                        <span className="text-xs text-muted-foreground" dir="ltr">
-                          {teacher.email}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label>{t("structure.subject")}</Label>
-                <Select
-                  items={(subjects ?? []).map((subject) => ({
-                    label: subject.name,
-                    value: subject._id,
-                  }))}
-                  value={subjectId}
-                  onValueChange={(next) => {
-                    if (next) setSubjectId(next as Id<"subjects">);
-                  }}
-                >
-                  <SelectTrigger
-                    className="w-full"
+            <form
+              noValidate
+              onSubmit={(e) => {
+                e.preventDefault();
+                form.handleSubmit();
+              }}
+              className="flex flex-col gap-4"
+            >
+              {/* Teacher label differs between trigger (name) and dropdown
+                  (name + email), which the shared SelectField can't express,
+                  so this stays a raw Select bound to the field. */}
+              <form.AppField name="teacherId">
+                {(field) => (
+                  <div className="flex flex-col gap-2">
+                    <Label id="assignment-teacher-label">
+                      {t("structure.teacher")}
+                    </Label>
+                    <Select
+                      items={(teachers ?? []).map((teacher) => ({
+                        label: teacher.name,
+                        value: teacher.id,
+                      }))}
+                      value={field.state.value}
+                      onValueChange={(next) =>
+                        field.handleChange((next as string | null) ?? null)
+                      }
+                      onOpenChange={(open) => {
+                        if (!open) field.handleBlur();
+                      }}
+                    >
+                      <SelectTrigger
+                        className="w-full"
+                        aria-label={t("structure.selectTeacher")}
+                      >
+                        <SelectValue
+                          placeholder={t("structure.selectTeacher")}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(teachers ?? []).map((teacher) => (
+                          <SelectItem key={teacher.id} value={teacher.id}>
+                            {teacher.name}
+                            <span
+                              className="text-xs text-muted-foreground"
+                              dir="ltr"
+                            >
+                              {teacher.email}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </form.AppField>
+              <form.AppField name="subjectId">
+                {(field) => (
+                  <field.SelectField
+                    label={t("structure.subject")}
+                    placeholder={t("structure.selectSubject")}
                     aria-label={t("structure.selectSubject")}
-                  >
-                    <SelectValue
-                      placeholder={t("structure.selectSubject")}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(subjects ?? []).map((subject) => (
-                      <SelectItem key={subject._id} value={subject._id}>
-                        {subject.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                    items={(subjects ?? []).map((subject) => ({
+                      value: subject._id,
+                      label: subject.name,
+                    }))}
+                  />
+                )}
+              </form.AppField>
               <DialogFooter>
                 <Button
                   type="button"
@@ -287,13 +302,17 @@ export function AssignmentsTab() {
                 >
                   {t("common.cancel")}
                 </Button>
-                <Button
-                  type="submit"
-                  disabled={pending || !teacherId || !subjectId}
-                >
-                  {pending ? <Spinner /> : null}
-                  {t("common.add")}
-                </Button>
+                <form.AppForm>
+                  <form.Subscribe
+                    selector={(s) => !s.values.teacherId || !s.values.subjectId}
+                  >
+                    {(incomplete) => (
+                      <form.SubmitButton disabled={incomplete}>
+                        {t("common.add")}
+                      </form.SubmitButton>
+                    )}
+                  </form.Subscribe>
+                </form.AppForm>
               </DialogFooter>
             </form>
           )}

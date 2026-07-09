@@ -13,8 +13,10 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useAppForm } from "@/components/form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,8 +42,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
@@ -533,55 +533,72 @@ function AddResourceForm({
   onOpenChange: (open: boolean) => void;
 }) {
   const updateLesson = useMutation(api.lessons.updateLesson);
-  const [title, setTitle] = useState("");
-  const [url, setUrl] = useState("");
-  const [pending, setPending] = useState(false);
-
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    setPending(true);
-    try {
-      await updateLesson({
-        lessonId: lesson._id,
-        resources: [
-          ...lesson.resources,
-          { title: title.trim(), url: url.trim() },
-        ],
-      });
-      toast.success(t("lessons.resourceAdded"));
-      onOpenChange(false);
-    } catch (error) {
-      toast.error(mutationErrorText(error));
-    } finally {
-      setPending(false);
-    }
-  }
+  const form = useAppForm({
+    defaultValues: { title: "", url: "" },
+    validators: {
+      onSubmit: z.object({
+        title: z
+          .string()
+          .trim()
+          .min(1, t("common.requiredField"))
+          .max(120, t("common.invalidValue")),
+        // Server contract: url must be http(s) (re-checked server-side).
+        url: z
+          .string()
+          .trim()
+          .min(1, t("common.requiredField"))
+          .refine(
+            (value) =>
+              value.startsWith("http://") || value.startsWith("https://"),
+            t("common.invalidValue"),
+          ),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      try {
+        await updateLesson({
+          lessonId: lesson._id,
+          resources: [
+            ...lesson.resources,
+            { title: value.title.trim(), url: value.url.trim() },
+          ],
+        });
+        toast.success(t("lessons.resourceAdded"));
+        onOpenChange(false);
+      } catch (error) {
+        toast.error(mutationErrorText(error));
+      }
+    },
+  });
 
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="resource-title">{t("lessons.resourceTitleLabel")}</Label>
-        <Input
-          id="resource-title"
-          required
-          maxLength={120}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-      </div>
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="resource-url">{t("lessons.resourceUrlLabel")}</Label>
-        <Input
-          id="resource-url"
-          type="url"
-          dir="ltr"
-          inputMode="url"
-          required
-          placeholder="https://"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-        />
-      </div>
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        form.handleSubmit();
+      }}
+      className="flex flex-col gap-4"
+    >
+      <form.AppField name="title">
+        {(field) => (
+          <field.TextField
+            label={t("lessons.resourceTitleLabel")}
+            maxLength={120}
+          />
+        )}
+      </form.AppField>
+      <form.AppField name="url">
+        {(field) => (
+          <field.TextField
+            label={t("lessons.resourceUrlLabel")}
+            type="url"
+            dir="ltr"
+            inputMode="url"
+            placeholder="https://"
+          />
+        )}
+      </form.AppField>
       <DialogFooter className="mt-2">
         <Button
           type="button"
@@ -590,10 +607,9 @@ function AddResourceForm({
         >
           {t("common.cancel")}
         </Button>
-        <Button type="submit" disabled={pending}>
-          {pending ? <Spinner /> : null}
-          {t("common.add")}
-        </Button>
+        <form.AppForm>
+          <form.SubmitButton>{t("common.add")}</form.SubmitButton>
+        </form.AppForm>
       </DialogFooter>
     </form>
   );

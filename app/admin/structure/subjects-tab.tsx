@@ -4,8 +4,10 @@ import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { BookOpen, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useAppForm } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,10 +23,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
   TableBody,
@@ -56,39 +55,42 @@ export function SubjectsTab() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Subject | null>(null);
-  const [name, setName] = useState("");
-  const [pending, setPending] = useState(false);
+
+  const form = useAppForm({
+    defaultValues: { name: "" },
+    validators: {
+      onSubmit: z.object({
+        name: z.string().trim().min(1, t("common.requiredField")),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      const name = value.name.trim();
+      try {
+        if (editing) {
+          await updateSubject({ subjectId: editing._id, name });
+          toast.success(t("structure.subjectUpdated"));
+        } else {
+          if (!gradeId) return;
+          await createSubject({ name, gradeId });
+          toast.success(t("structure.subjectCreated"));
+        }
+        setDialogOpen(false);
+      } catch (err) {
+        toast.error(structureError(err));
+      }
+    },
+  });
 
   function openAdd() {
     setEditing(null);
-    setName("");
+    form.reset({ name: "" });
     setDialogOpen(true);
   }
 
   function openEdit(subject: Subject) {
     setEditing(subject);
-    setName(subject.name);
+    form.reset({ name: subject.name });
     setDialogOpen(true);
-  }
-
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!name.trim() || !gradeId) return;
-    setPending(true);
-    try {
-      if (editing) {
-        await updateSubject({ subjectId: editing._id, name });
-        toast.success(t("structure.subjectUpdated"));
-      } else {
-        await createSubject({ name, gradeId });
-        toast.success(t("structure.subjectCreated"));
-      }
-      setDialogOpen(false);
-    } catch (err) {
-      toast.error(structureError(err));
-    } finally {
-      setPending(false);
-    }
   }
 
   async function onDelete(subject: Subject) {
@@ -191,18 +193,19 @@ export function SubjectsTab() {
                 : t("structure.addSubject")}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={onSubmit} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="subject-name">
-                {t("structure.subjectName")}
-              </Label>
-              <Input
-                id="subject-name"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
+          <form
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault();
+              form.handleSubmit();
+            }}
+            className="flex flex-col gap-4"
+          >
+            <form.AppField name="name">
+              {(field) => (
+                <field.TextField label={t("structure.subjectName")} />
+              )}
+            </form.AppField>
             <DialogFooter>
               <Button
                 type="button"
@@ -211,10 +214,9 @@ export function SubjectsTab() {
               >
                 {t("common.cancel")}
               </Button>
-              <Button type="submit" disabled={pending}>
-                {pending ? <Spinner /> : null}
-                {t("common.save")}
-              </Button>
+              <form.AppForm>
+                <form.SubmitButton>{t("common.save")}</form.SubmitButton>
+              </form.AppForm>
             </DialogFooter>
           </form>
         </DialogContent>

@@ -4,8 +4,10 @@ import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { Layers, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { numberString, useAppForm } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,10 +23,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
   TableBody,
@@ -47,47 +46,47 @@ export function GradesTab() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Grade | null>(null);
-  const [name, setName] = useState("");
-  const [order, setOrder] = useState("1");
-  const [pending, setPending] = useState(false);
+
+  const form = useAppForm({
+    defaultValues: { name: "", order: "1" },
+    validators: {
+      onSubmit: z.object({
+        name: z.string().trim().min(1, t("common.requiredField")),
+        order: numberString(),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      const name = value.name.trim();
+      const order = Number(value.order);
+      try {
+        if (editing) {
+          await updateGrade({ gradeId: editing._id, name, order });
+          toast.success(t("structure.gradeUpdated"));
+        } else {
+          await createGrade({ name, order });
+          toast.success(t("structure.gradeCreated"));
+        }
+        setDialogOpen(false);
+      } catch (err) {
+        toast.error(structureError(err));
+      }
+    },
+  });
 
   function openAdd() {
     setEditing(null);
-    setName("");
     const nextOrder =
       grades && grades.length > 0
         ? Math.max(...grades.map((g) => g.order)) + 1
         : 1;
-    setOrder(String(nextOrder));
+    form.reset({ name: "", order: String(nextOrder) });
     setDialogOpen(true);
   }
 
   function openEdit(grade: Grade) {
     setEditing(grade);
-    setName(grade.name);
-    setOrder(String(grade.order));
+    form.reset({ name: grade.name, order: String(grade.order) });
     setDialogOpen(true);
-  }
-
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    const orderNum = Number(order);
-    if (!name.trim() || !Number.isFinite(orderNum)) return;
-    setPending(true);
-    try {
-      if (editing) {
-        await updateGrade({ gradeId: editing._id, name, order: orderNum });
-        toast.success(t("structure.gradeUpdated"));
-      } else {
-        await createGrade({ name, order: orderNum });
-        toast.success(t("structure.gradeCreated"));
-      }
-      setDialogOpen(false);
-    } catch (err) {
-      toast.error(structureError(err));
-    } finally {
-      setPending(false);
-    }
   }
 
   async function onDelete(grade: Grade) {
@@ -181,28 +180,29 @@ export function GradesTab() {
               {editing ? t("structure.editGrade") : t("structure.addGrade")}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={onSubmit} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="grade-name">{t("structure.gradeName")}</Label>
-              <Input
-                id="grade-name"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="grade-order">{t("structure.gradeOrder")}</Label>
-              <Input
-                id="grade-order"
-                type="number"
-                dir="ltr"
-                required
-                inputMode="numeric"
-                value={order}
-                onChange={(e) => setOrder(e.target.value)}
-              />
-            </div>
+          <form
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault();
+              form.handleSubmit();
+            }}
+            className="flex flex-col gap-4"
+          >
+            <form.AppField name="name">
+              {(field) => (
+                <field.TextField label={t("structure.gradeName")} />
+              )}
+            </form.AppField>
+            <form.AppField name="order">
+              {(field) => (
+                <field.TextField
+                  label={t("structure.gradeOrder")}
+                  type="number"
+                  dir="ltr"
+                  inputMode="numeric"
+                />
+              )}
+            </form.AppField>
             <DialogFooter>
               <Button
                 type="button"
@@ -211,10 +211,9 @@ export function GradesTab() {
               >
                 {t("common.cancel")}
               </Button>
-              <Button type="submit" disabled={pending}>
-                {pending ? <Spinner /> : null}
-                {t("common.save")}
-              </Button>
+              <form.AppForm>
+                <form.SubmitButton>{t("common.save")}</form.SubmitButton>
+              </form.AppForm>
             </DialogFooter>
           </form>
         </DialogContent>

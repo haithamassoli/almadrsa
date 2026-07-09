@@ -11,8 +11,10 @@ import {
   SearchX,
 } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { numberString, useAppForm } from "@/components/form";
 import { AudioPlayer } from "@/components/audio-player";
 import { VoiceRecorder } from "@/components/voice-recorder";
 import {
@@ -34,7 +36,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDateTime, formatNumber, t } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -357,17 +358,21 @@ function EssayGradeCard({
     api.files.generateFeedbackAudioUploadUrl,
   );
 
-  const [score, setScore] = useState(
-    essay.currentScore !== undefined ? String(essay.currentScore) : "",
-  );
-  const [feedback, setFeedback] = useState(essay.currentFeedback.text ?? "");
   const [voiceBlob, setVoiceBlob] = useState<Blob | null>(null);
-  const [pending, setPending] = useState(false);
 
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    setPending(true);
-    try {
+  const form = useAppForm({
+    defaultValues: {
+      score:
+        essay.currentScore !== undefined ? String(essay.currentScore) : "",
+      feedback: essay.currentFeedback.text ?? "",
+    },
+    validators: {
+      onSubmit: z.object({
+        score: numberString({ min: 0, max: essay.marks }),
+        feedback: z.string().max(2000, t("common.invalidValue")),
+      }),
+    },
+    onSubmit: async ({ value }) => {
       // Upload the fresh voice note first; omitting the id keeps the stored
       // one (server merge semantics).
       let feedbackAudioId: Id<"_storage"> | undefined;
@@ -389,23 +394,23 @@ function EssayGradeCard({
           return;
         }
       }
-      await gradeEssay({
-        attemptId,
-        questionId: essay.questionId,
-        score: Number(score),
-        // Always sent: whitespace-only clears the stored text (server-side).
-        feedbackText: feedback,
-        feedbackAudioId,
-      });
-      toast.success(t("exams.gradingSaved"));
-      // The saved note now streams back as currentFeedback.audioUrl.
-      setVoiceBlob(null);
-    } catch (error) {
-      toast.error(mutationErrorText(error));
-    } finally {
-      setPending(false);
-    }
-  }
+      try {
+        await gradeEssay({
+          attemptId,
+          questionId: essay.questionId,
+          score: Number(value.score),
+          // Always sent: whitespace-only clears the stored text (server-side).
+          feedbackText: value.feedback,
+          feedbackAudioId,
+        });
+        toast.success(t("exams.gradingSaved"));
+        // The saved note now streams back as currentFeedback.audioUrl.
+        setVoiceBlob(null);
+      } catch (error) {
+        toast.error(mutationErrorText(error));
+      }
+    },
+  });
 
   return (
     <Card className="rounded-2xl">
@@ -454,38 +459,72 @@ function EssayGradeCard({
           </p>
         </div>
 
-        <form onSubmit={onSubmit} className="flex flex-col gap-3">
+        <form
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            form.handleSubmit();
+          }}
+          className="flex flex-col gap-3"
+        >
+          {/* Escape-hatch fields keep per-question ids unique — several
+              EssayGradeCard forms render at once, so the shared field
+              components' id={field.name} would collide across cards. */}
           <div className="grid gap-3 sm:grid-cols-[8rem_1fr]">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor={`grade-score-${essay.questionId}`}>
-                {t("exams.gradingScoreLabel", {
-                  max: formatNumber(essay.marks),
-                })}
-              </Label>
-              <Input
-                id={`grade-score-${essay.questionId}`}
-                type="number"
-                dir="ltr"
-                required
-                min={0}
-                max={essay.marks}
-                step="any"
-                value={score}
-                onChange={(e) => setScore(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor={`grade-feedback-${essay.questionId}`}>
-                {t("exams.gradingFeedbackLabel")}
-              </Label>
-              <Textarea
-                id={`grade-feedback-${essay.questionId}`}
-                rows={2}
-                maxLength={2000}
-                value={feedback}
-                onChange={(e) => setFeedback(e.target.value)}
-              />
-            </div>
+            <form.AppField name="score">
+              {(field) => {
+                const invalid =
+                  field.state.meta.isTouched &&
+                  field.state.meta.errors.length > 0;
+                const first = field.state.meta.errors[0] as
+                  | string
+                  | { message?: string }
+                  | undefined;
+                const errorMessage =
+                  typeof first === "string" ? first : first?.message;
+                return (
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor={`grade-score-${essay.questionId}`}>
+                      {t("exams.gradingScoreLabel", {
+                        max: formatNumber(essay.marks),
+                      })}
+                    </Label>
+                    <Input
+                      id={`grade-score-${essay.questionId}`}
+                      type="number"
+                      dir="ltr"
+                      min={0}
+                      max={essay.marks}
+                      step="any"
+                      value={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
+                      aria-invalid={invalid || undefined}
+                    />
+                    {invalid && errorMessage ? (
+                      <p className="text-sm text-destructive">{errorMessage}</p>
+                    ) : null}
+                  </div>
+                );
+              }}
+            </form.AppField>
+            <form.AppField name="feedback">
+              {(field) => (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={`grade-feedback-${essay.questionId}`}>
+                    {t("exams.gradingFeedbackLabel")}
+                  </Label>
+                  <Textarea
+                    id={`grade-feedback-${essay.questionId}`}
+                    rows={2}
+                    maxLength={2000}
+                    value={field.state.value}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
+                  />
+                </div>
+              )}
+            </form.AppField>
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -495,17 +534,22 @@ function EssayGradeCard({
             {essay.currentFeedback.audioUrl && voiceBlob === null ? (
               <AudioPlayer src={essay.currentFeedback.audioUrl} />
             ) : null}
-            <VoiceRecorder
-              value={voiceBlob}
-              onChange={setVoiceBlob}
-              disabled={pending}
-            />
+            <form.Subscribe selector={(s) => s.isSubmitting}>
+              {(isSubmitting) => (
+                <VoiceRecorder
+                  value={voiceBlob}
+                  onChange={setVoiceBlob}
+                  disabled={isSubmitting}
+                />
+              )}
+            </form.Subscribe>
           </div>
 
-          <Button type="submit" disabled={pending} className="self-start">
-            {pending ? <Spinner /> : null}
-            {t("exams.gradingSave")}
-          </Button>
+          <form.AppForm>
+            <form.SubmitButton className="self-start">
+              {t("exams.gradingSave")}
+            </form.SubmitButton>
+          </form.AppForm>
         </form>
       </CardContent>
     </Card>

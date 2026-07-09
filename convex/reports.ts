@@ -12,7 +12,7 @@ import { requireAdmin, requireTeacher } from "./auth";
 import { requireStudentAccount } from "./studentAuth";
 import { assertStaffCanAccessStudent } from "./students";
 import { logAudit } from "./lib/audit";
-import { round2, sumManualScores } from "./lib/grading";
+import { effectiveScore } from "./lib/grading";
 import { notifyStudents } from "./lib/notify";
 import { reportStatus } from "./lib/validators";
 
@@ -335,11 +335,7 @@ export const computeForStudent = internalMutation({
         ) {
           continue;
         }
-        const effective =
-          attempt.overrideScore ??
-          round2(
-            (attempt.autoScore ?? 0) + sumManualScores(attempt.manualScores),
-          );
+        const effective = effectiveScore(attempt);
         examPcts.push((effective / attempt.maxScore) * 100);
       }
       const examsPct =

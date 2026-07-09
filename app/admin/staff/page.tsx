@@ -4,7 +4,9 @@ import { useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { Copy, UserPlus, Wand2 } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
+import { useAppForm } from "@/components/form";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,15 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
   TableBody,
@@ -80,7 +74,12 @@ async function copyToClipboard(text: string) {
   }
 }
 
-const EMPTY_FORM = { name: "", email: "", password: "", role: "teacher" as StaffRole };
+const EMPTY_FORM = {
+  name: "",
+  email: "",
+  password: "",
+  role: "teacher" as string | null,
+};
 
 export default function StaffPage() {
   const users = useQuery(api.staff.listStaff);
@@ -89,8 +88,6 @@ export default function StaffPage() {
   const setStaffBanned = useAction(api.staff.setStaffBanned);
 
   const [addOpen, setAddOpen] = useState(false);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [creating, setCreating] = useState(false);
   const [pendingBan, setPendingBan] = useState<{
     userId: string;
     name: string;
@@ -103,31 +100,38 @@ export default function StaffPage() {
     { value: "admin", label: t("auth.roleAdmin") },
   ];
 
-  const canSubmit =
-    form.name.trim().length > 0 &&
-    form.email.trim().length > 3 &&
-    form.password.length >= 8 &&
-    !creating;
-
-  async function submitCreate() {
-    if (!canSubmit) return;
-    setCreating(true);
-    try {
-      await createAccount({
-        name: form.name.trim(),
-        email: form.email.trim(),
-        password: form.password,
-        role: form.role,
-      });
-      toast.success(t("staff.createdToast"));
-      setAddOpen(false);
-      setForm(EMPTY_FORM);
-    } catch (error) {
-      toast.error(errorMessage(error));
-    } finally {
-      setCreating(false);
-    }
-  }
+  const form = useAppForm({
+    defaultValues: EMPTY_FORM,
+    validators: {
+      // Same gates the old canSubmit enforced: name present, email > 3 chars,
+      // password >= 8. Empty email reads as required, 1–3 chars as invalid.
+      onSubmit: z.object({
+        name: z.string().trim().min(1, t("common.requiredField")),
+        email: z
+          .string()
+          .trim()
+          .min(1, t("common.requiredField"))
+          .min(4, t("common.invalidValue")),
+        password: z.string().min(8, t("common.invalidValue")),
+        role: z.string().nullable(),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      try {
+        await createAccount({
+          name: value.name.trim(),
+          email: value.email.trim(),
+          password: value.password,
+          role: (value.role ?? "teacher") as StaffRole,
+        });
+        toast.success(t("staff.createdToast"));
+        setAddOpen(false);
+        form.reset(EMPTY_FORM);
+      } catch (error) {
+        toast.error(errorMessage(error));
+      }
+    },
+  });
 
   async function confirmBan() {
     if (!pendingBan || banBusy) return;
@@ -258,7 +262,7 @@ export default function StaffPage() {
         open={addOpen}
         onOpenChange={(open) => {
           setAddOpen(open);
-          if (!open) setForm(EMPTY_FORM);
+          if (!open) form.reset(EMPTY_FORM);
         }}
       >
         <DialogContent>
@@ -267,108 +271,103 @@ export default function StaffPage() {
             <DialogDescription>{t("staff.createDesc")}</DialogDescription>
           </DialogHeader>
           <form
+            noValidate
             className="flex flex-col gap-4"
             onSubmit={(e) => {
               e.preventDefault();
-              void submitCreate();
+              form.handleSubmit();
             }}
           >
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="staff-name">{t("staff.nameLabel")}</Label>
-              <Input
-                id="staff-name"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder={t("staff.namePlaceholder")}
-                autoComplete="off"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="staff-email">{t("staff.emailLabel")}</Label>
-              <Input
-                id="staff-email"
-                type="email"
-                dir="ltr"
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                placeholder={t("staff.emailPlaceholder")}
-                autoComplete="off"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="staff-password">{t("staff.passwordLabel")}</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="staff-password"
-                  dir="ltr"
-                  className="font-mono"
-                  value={form.password}
-                  onChange={(e) =>
-                    setForm({ ...form, password: e.target.value })
-                  }
-                  placeholder={t("staff.passwordPlaceholder")}
+            <form.AppField name="name">
+              {(field) => (
+                <field.TextField
+                  label={t("staff.nameLabel")}
+                  placeholder={t("staff.namePlaceholder")}
                   autoComplete="off"
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  aria-label={t("staff.generatePassword")}
-                  onClick={() =>
-                    setForm({ ...form, password: generatePassword() })
-                  }
-                >
-                  <Wand2 aria-hidden />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  aria-label={t("staff.copyPassword")}
-                  disabled={form.password.length === 0}
-                  onClick={() => void copyToClipboard(form.password)}
-                >
-                  <Copy aria-hidden />
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {t("staff.passwordShownOnce")}
-              </p>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>{t("staff.roleLabel")}</Label>
-              <Select
-                items={roleItems}
-                value={form.role}
-                onValueChange={(value) =>
-                  setForm({ ...form, role: (value as StaffRole) ?? "teacher" })
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {roleItems.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+              )}
+            </form.AppField>
+            <form.AppField name="email">
+              {(field) => (
+                <field.TextField
+                  label={t("staff.emailLabel")}
+                  type="email"
+                  dir="ltr"
+                  placeholder={t("staff.emailPlaceholder")}
+                  autoComplete="off"
+                />
+              )}
+            </form.AppField>
+            {/* Custom layout (generate/copy buttons + hint) — bound to the
+                field directly since it isn't a plain TextField. */}
+            <form.AppField name="password">
+              {(field) => (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={field.name}>
+                    {t("staff.passwordLabel")}
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id={field.name}
+                      name={field.name}
+                      dir="ltr"
+                      className="font-mono"
+                      value={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
+                      placeholder={t("staff.passwordPlaceholder")}
+                      autoComplete="off"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label={t("staff.generatePassword")}
+                      onClick={() => field.handleChange(generatePassword())}
+                    >
+                      <Wand2 aria-hidden />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      aria-label={t("staff.copyPassword")}
+                      disabled={field.state.value.length === 0}
+                      onClick={() => void copyToClipboard(field.state.value)}
+                    >
+                      <Copy aria-hidden />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t("staff.passwordShownOnce")}
+                  </p>
+                </div>
+              )}
+            </form.AppField>
+            <form.AppField name="role">
+              {(field) => (
+                <field.SelectField
+                  label={t("staff.roleLabel")}
+                  items={roleItems}
+                />
+              )}
+            </form.AppField>
             <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={creating}
-                onClick={() => setAddOpen(false)}
-              >
-                {t("common.cancel")}
-              </Button>
-              <Button type="submit" disabled={!canSubmit}>
-                {creating && <Spinner className="size-4" />}
-                {t("staff.create")}
-              </Button>
+              <form.Subscribe selector={(s) => s.isSubmitting}>
+                {(isSubmitting) => (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isSubmitting}
+                    onClick={() => setAddOpen(false)}
+                  >
+                    {t("common.cancel")}
+                  </Button>
+                )}
+              </form.Subscribe>
+              <form.AppForm>
+                <form.SubmitButton>{t("staff.create")}</form.SubmitButton>
+              </form.AppForm>
             </DialogFooter>
           </form>
         </DialogContent>

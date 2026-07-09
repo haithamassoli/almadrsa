@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 /**
  * M7 smoke tests. They run against the ALREADY-RUNNING dev servers
- * (`next dev -p 3001` + `convex dev`) — `reuseExistingServer: true` makes the
+ * (`next dev` + `convex dev`) — `reuseExistingServer: true` makes the
  * webServer block attach to them instead of spawning a second instance.
  *
  * The suite is intentionally serial (one project, one worker): both specs
@@ -20,7 +20,7 @@ export default defineConfig({
   timeout: 120_000,
   expect: { timeout: 15_000 },
   use: {
-    baseURL: "http://localhost:3001",
+    baseURL: "http://localhost:3000",
     trace: "retain-on-failure",
   },
   projects: [
@@ -33,7 +33,7 @@ export default defineConfig({
   ],
   webServer: {
     command: "npm run dev",
-    url: "http://localhost:3001",
+    url: "http://localhost:3000",
     reuseExistingServer: true,
     timeout: 60_000,
   },

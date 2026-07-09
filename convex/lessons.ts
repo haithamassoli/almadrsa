@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { requireTeacher, type StaffUser } from "./auth";
 import { assertStaffCanAccessClass } from "./students";
 import { logAudit } from "./lib/audit";
+import { cachedName } from "./lib/joins";
 import { isValidDateKey, weekdayOf } from "./lib/dates";
 import { lessonSource } from "./lib/validators";
 
@@ -37,23 +38,6 @@ export async function getOwnedLesson(
     throw new ConvexError("not_found");
   }
   return lesson;
-}
-
-/** Cached grade/class/subject name lookups for bounded join loops. */
-async function cachedName<Table extends "grades" | "classes" | "subjects">(
-  ctx: QueryCtx,
-  table: Table,
-  id: Id<Table>,
-  cache: Map<Id<Table>, string>,
-): Promise<string> {
-  const cached = cache.get(id);
-  if (cached !== undefined) return cached;
-  // Grades, classes and subjects all carry `name: string`; TS cannot reduce
-  // the generic indexed access to that, hence the contained cast.
-  const doc = (await ctx.db.get(table, id)) as { name: string } | null;
-  const name = doc?.name ?? "";
-  cache.set(id, name);
-  return name;
 }
 
 // ——— Queries ———
@@ -472,41 +456,6 @@ export const updateLesson = mutation({
       patch.notes = notes.length > 0 ? notes : undefined; // empty clears
     }
     await ctx.db.patch("lessons", args.lessonId, patch);
-    return null;
-  },
-});
-
-/**
- * Delete a lesson (owner-or-admin). Refused once any attendance was marked —
- * attendance history must never silently disappear.
- */
-export const deleteLesson = mutation({
-  args: { lessonId: v.id("lessons") },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const staff = await requireTeacher(ctx);
-    const lesson = await getOwnedLesson(ctx, staff, args.lessonId);
-    const attendanceRow = await ctx.db
-      .query("attendance")
-      .withIndex("by_lessonId_and_studentId", (q) =>
-        q.eq("lessonId", args.lessonId),
-      )
-      .first();
-    if (attendanceRow) throw new ConvexError("lesson_has_attendance");
-    await ctx.db.delete("lessons", args.lessonId);
-    await logAudit(ctx, {
-      actorType: "staff",
-      actorId: staff.id,
-      action: "lesson.delete",
-      targetType: "lesson",
-      targetId: args.lessonId,
-      meta: {
-        classId: lesson.classId,
-        date: lesson.date,
-        period: lesson.period,
-        source: lesson.source,
-      },
-    });
     return null;
   },
 });

@@ -3,7 +3,7 @@ import { NetworkOnly, Serwist } from "serwist";
 import { defaultCache } from "@serwist/next/worker";
 
 // `@serwist/next` injects the precache manifest (build assets + public files +
-// the additionalPrecacheEntries from next.config.ts) into `self.__SW_MANIFEST`
+// the additionalPrecacheEntries from serwist.config.mjs) into `self.__SW_MANIFEST`
 // at build time.
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -34,7 +34,7 @@ const serwist = new Serwist({
   fallbacks: {
     // Offline navigation fallback for a client-rendered app: serve the
     // precached /portal HTML shell (see additionalPrecacheEntries in
-    // next.config.ts) when a document request can't be satisfied — the client
+    // serwist.config.mjs) when a document request can't be satisfied — the client
     // bundle then boots from the precache and renders its own loading states.
     entries: [
       {

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { KeyRound } from "lucide-react";
+import { z } from "zod";
+import { useAppForm } from "@/components/form";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -14,7 +16,6 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Spinner } from "@/components/ui/spinner";
 import { t } from "@/lib/i18n";
 import {
   getDeviceToken,
@@ -28,28 +29,62 @@ type Step = "code" | "pin" | "pinSetup";
 export default function CodeLoginPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("code");
-  const [code, setCode] = useState("");
-  const [pin, setPin] = useState("");
-  const [setupPin, setSetupPin] = useState("");
-  const [rememberDevice, setRememberDevice] = useState(true);
+  // The backend "invalid code / pin / rate-limited" outcome is a server
+  // response, not field validation, so it stays a local error above the button.
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+
+  const codeForm = useAppForm({
+    defaultValues: { code: "" },
+    validators: {
+      onSubmit: z.object({
+        code: z.string().min(1, t("common.requiredField")),
+      }),
+    },
+    onSubmit: async () => {
+      await submitLogin();
+    },
+  });
+
+  const pinForm = useAppForm({
+    defaultValues: { pin: "", rememberDevice: true },
+    validators: {
+      onSubmit: z.object({
+        pin: z.string().min(1, t("common.requiredField")),
+        rememberDevice: z.boolean(),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      await submitLogin(value.pin);
+    },
+  });
+
+  const pinSetupForm = useAppForm({
+    defaultValues: { setupPin: "" },
+    validators: {
+      onSubmit: z.object({
+        setupPin: z.string().min(1, t("common.requiredField")),
+      }),
+    },
+    onSubmit: async ({ value }) => {
+      await submitPinSetup(value.setupPin);
+    },
+  });
 
   function fail(message: string) {
     setError(message);
-    setPending(false);
   }
 
   async function submitLogin(withPin?: string) {
     setError(null);
-    setPending(true);
     try {
-      const body: Record<string, unknown> = { code };
+      const body: Record<string, unknown> = {
+        code: codeForm.state.values.code,
+      };
       const deviceToken = getDeviceToken();
       if (deviceToken) body.deviceToken = deviceToken;
       if (withPin) {
         body.pin = withPin;
-        body.rememberDevice = rememberDevice;
+        body.rememberDevice = pinForm.state.values.rememberDevice;
       }
       const result = await studentFetch("/student/login", body);
       if (result.ok && result.sessionToken) {
@@ -58,7 +93,6 @@ export default function CodeLoginPage() {
           deviceToken: result.deviceToken,
         });
         if (result.needsPinSetup) {
-          setPending(false);
           setStep("pinSetup");
           return;
         }
@@ -66,7 +100,6 @@ export default function CodeLoginPage() {
         return;
       }
       if (result.needsPin) {
-        setPending(false);
         setStep("pin");
         return;
       }
@@ -89,9 +122,8 @@ export default function CodeLoginPage() {
     }
   }
 
-  async function submitPinSetup() {
+  async function submitPinSetup(setupPin: string) {
     setError(null);
-    setPending(true);
     try {
       const sessionToken = getSessionToken();
       if (sessionToken && setupPin.length >= 4) {
@@ -125,68 +157,89 @@ export default function CodeLoginPage() {
         <CardContent>
           {step === "code" ? (
             <form
+              noValidate
               className="flex flex-col gap-4"
               onSubmit={(e) => {
                 e.preventDefault();
-                void submitLogin();
+                codeForm.handleSubmit();
               }}
             >
               <div className="flex flex-col gap-2">
                 <Label htmlFor="code">{t("auth.accessCode")}</Label>
-                <Input
-                  id="code"
-                  dir="ltr"
-                  autoComplete="off"
-                  autoCapitalize="characters"
-                  spellCheck={false}
-                  required
-                  placeholder={t("auth.accessCodePlaceholder")}
-                  className="h-11 text-center font-mono text-base tracking-wider uppercase"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                />
+                <codeForm.AppField name="code">
+                  {(field) => (
+                    <Input
+                      id="code"
+                      dir="ltr"
+                      autoComplete="off"
+                      autoCapitalize="characters"
+                      spellCheck={false}
+                      placeholder={t("auth.accessCodePlaceholder")}
+                      className="h-11 text-center font-mono text-base tracking-wider uppercase"
+                      value={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
+                    />
+                  )}
+                </codeForm.AppField>
               </div>
               {error ? (
                 <p role="alert" className="text-sm text-destructive">
                   {error}
                 </p>
               ) : null}
-              <Button type="submit" disabled={pending || code.length < 8}>
-                {pending ? <Spinner /> : null}
-                {t("auth.signIn")}
-              </Button>
+              <codeForm.AppForm>
+                <codeForm.Subscribe selector={(s) => s.values.code.length < 8}>
+                  {(tooShort) => (
+                    <codeForm.SubmitButton disabled={tooShort}>
+                      {t("auth.signIn")}
+                    </codeForm.SubmitButton>
+                  )}
+                </codeForm.Subscribe>
+              </codeForm.AppForm>
             </form>
           ) : null}
 
           {step === "pin" ? (
             <form
+              noValidate
               className="flex flex-col gap-4"
               onSubmit={(e) => {
                 e.preventDefault();
-                void submitLogin(pin);
+                pinForm.handleSubmit();
               }}
             >
               <div className="flex flex-col gap-2">
                 <Label htmlFor="pin">{t("auth.pin")}</Label>
-                <Input
-                  id="pin"
-                  dir="ltr"
-                  type="password"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  required
-                  minLength={4}
-                  maxLength={6}
-                  className="h-11 text-center font-mono text-lg tracking-[0.5em]"
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                />
+                <pinForm.AppField name="pin">
+                  {(field) => (
+                    <Input
+                      id="pin"
+                      dir="ltr"
+                      type="password"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      minLength={4}
+                      maxLength={6}
+                      className="h-11 text-center font-mono text-lg tracking-[0.5em]"
+                      value={field.state.value}
+                      onChange={(e) =>
+                        field.handleChange(e.target.value.replace(/\D/g, ""))
+                      }
+                      onBlur={field.handleBlur}
+                    />
+                  )}
+                </pinForm.AppField>
               </div>
               <label className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={rememberDevice}
-                  onCheckedChange={(v) => setRememberDevice(v === true)}
-                />
+                <pinForm.AppField name="rememberDevice">
+                  {(field) => (
+                    <Checkbox
+                      checked={field.state.value}
+                      onCheckedChange={(v) => field.handleChange(v === true)}
+                    />
+                  )}
+                </pinForm.AppField>
                 {t("auth.rememberDevice")}
               </label>
               {error ? (
@@ -194,61 +247,81 @@ export default function CodeLoginPage() {
                   {error}
                 </p>
               ) : null}
-              <Button type="submit" disabled={pending || pin.length < 4}>
-                {pending ? <Spinner /> : null}
-                {t("auth.signIn")}
-              </Button>
+              <pinForm.AppForm>
+                <pinForm.Subscribe selector={(s) => s.values.pin.length < 4}>
+                  {(tooShort) => (
+                    <pinForm.SubmitButton disabled={tooShort}>
+                      {t("auth.signIn")}
+                    </pinForm.SubmitButton>
+                  )}
+                </pinForm.Subscribe>
+              </pinForm.AppForm>
             </form>
           ) : null}
 
           {step === "pinSetup" ? (
             <form
+              noValidate
               className="flex flex-col gap-4"
               onSubmit={(e) => {
                 e.preventDefault();
-                void submitPinSetup();
+                pinSetupForm.handleSubmit();
               }}
             >
               <div className="flex flex-col gap-2">
                 <Label htmlFor="setupPin">{t("auth.pin")}</Label>
-                <Input
-                  id="setupPin"
-                  dir="ltr"
-                  type="password"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  minLength={4}
-                  maxLength={6}
-                  className="h-11 text-center font-mono text-lg tracking-[0.5em]"
-                  value={setupPin}
-                  onChange={(e) =>
-                    setSetupPin(e.target.value.replace(/\D/g, ""))
-                  }
-                />
+                <pinSetupForm.AppField name="setupPin">
+                  {(field) => (
+                    <Input
+                      id="setupPin"
+                      dir="ltr"
+                      type="password"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      minLength={4}
+                      maxLength={6}
+                      className="h-11 text-center font-mono text-lg tracking-[0.5em]"
+                      value={field.state.value}
+                      onChange={(e) =>
+                        field.handleChange(e.target.value.replace(/\D/g, ""))
+                      }
+                      onBlur={field.handleBlur}
+                    />
+                  )}
+                </pinSetupForm.AppField>
               </div>
               {error ? (
                 <p role="alert" className="text-sm text-destructive">
                   {error}
                 </p>
               ) : null}
-              <div className="flex gap-2">
-                <Button
-                  type="submit"
-                  className="flex-1"
-                  disabled={pending || setupPin.length < 4}
+              <pinSetupForm.AppForm>
+                <pinSetupForm.Subscribe
+                  selector={(s) => ({
+                    submitting: s.isSubmitting,
+                    tooShort: s.values.setupPin.length < 4,
+                  })}
                 >
-                  {pending ? <Spinner /> : null}
-                  {t("common.save")}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={pending}
-                  onClick={() => router.replace("/portal")}
-                >
-                  {t("auth.pinSkip")}
-                </Button>
-              </div>
+                  {({ submitting, tooShort }) => (
+                    <div className="flex gap-2">
+                      <pinSetupForm.SubmitButton
+                        className="flex-1"
+                        disabled={tooShort}
+                      >
+                        {t("common.save")}
+                      </pinSetupForm.SubmitButton>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={submitting}
+                        onClick={() => router.replace("/portal")}
+                      >
+                        {t("auth.pinSkip")}
+                      </Button>
+                    </div>
+                  )}
+                </pinSetupForm.Subscribe>
+              </pinSetupForm.AppForm>
             </form>
           ) : null}
         </CardContent>
