@@ -17,9 +17,10 @@ const tagline = t("common.tagline");
 const title = `${appName} — ${tagline}`;
 
 export const metadata: Metadata = {
-  // Absolute base for og:image and other resolved URLs. SITE_URL is the
-  // production origin (see docs/deploy.md); localhost is the dev fallback.
-  metadataBase: new URL(process.env.SITE_URL ?? "http://localhost:3000"),
+  // Absolute base for og:image / twitter:image and other resolved URLs.
+  // SITE_URL is the production origin (see docs/deploy.md); the domain default
+  // keeps social-card images absolute even if SITE_URL is unset.
+  metadataBase: new URL(process.env.SITE_URL ?? "https://almdrasa.assoli.site"),
   title: {
     default: title,
     template: `%s · ${appName}`,
