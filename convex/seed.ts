@@ -35,6 +35,40 @@ export const createStaff = internalAction({
   },
 });
 
+// Reset a staff member's password from the CLI. Staff have no email/reset
+// flow (public signup is disabled), so this is the only recovery path. Uses
+// the same trusted internal-adapter path as Better Auth's admin
+// setUserPassword, minus its admin-session requirement.
+//   npx convex run seed:resetStaffPassword '{"email":"...","password":"..."}' --prod
+export const resetStaffPassword = internalAction({
+  args: { email: v.string(), password: v.string() },
+  returns: v.object({ userId: v.string() }),
+  handler: async (ctx, args) => {
+    const auth = createAuth(ctx);
+    const authCtx = await auth.$context;
+    const user: { _id: string; userId?: string | null } | null =
+      await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [{ field: "email", value: args.email }],
+      });
+    if (!user) throw new Error(`No staff account for ${args.email}`);
+    const userId = user.userId ?? user._id;
+    const hashed = await authCtx.password.hash(args.password);
+    const accounts = await authCtx.internalAdapter.findAccounts(userId);
+    if (accounts.some((account) => account.providerId === "credential")) {
+      await authCtx.internalAdapter.updatePassword(userId, hashed);
+    } else {
+      await authCtx.internalAdapter.createAccount({
+        userId,
+        providerId: "credential",
+        accountId: userId,
+        password: hashed,
+      });
+    }
+    return { userId };
+  },
+});
+
 // ————————————————————————————————————————————————————————————————————————
 // Demo data — grade 4 with one class, one active term, 3 subjects, the
 // seeded teacher assigned to all of them, and 8 enrolled students.
@@ -48,7 +82,7 @@ const DEMO_GRADE_ORDER = 4;
 const DEMO_CLASS_NAME = "الصف الرابع — أ";
 const DEMO_TERM_NAME = "الفصل الأول ٢٠٢٦/٢٠٢٧";
 const DEMO_SUBJECTS = ["التربية الإسلامية", "اللغة العربية", "الرياضيات"];
-const DEMO_TEACHER_EMAIL = "teacher@almadrasa.dev";
+const DEMO_TEACHER_EMAIL = "teacher@almdrasa.dev";
 const DEMO_STUDENTS: Array<{ firstName: string; lastName: string }> = [
   { firstName: "أحمد", lastName: "الخطيب" },
   { firstName: "محمد", lastName: "العمري" },

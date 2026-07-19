@@ -22,7 +22,7 @@ export const staff = {
   nameLabel: "الاسم الكامل",
   namePlaceholder: "مثال: سارة أحمد",
   emailLabel: "البريد الإلكتروني",
-  emailPlaceholder: "name@almadrasa.dev",
+  emailPlaceholder: "name@almdrasa.dev",
   passwordLabel: "كلمة المرور",
   passwordPlaceholder: "٨ أحرف على الأقل",
   generatePassword: "توليد كلمة مرور",

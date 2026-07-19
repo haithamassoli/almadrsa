@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { devices, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
 // Dev-only seeded staff account (see convex/seed.ts createStaff docs).
-export const TEACHER_EMAIL = "teacher@almadrasa.dev";
+export const TEACHER_EMAIL = "teacher@almdrasa.dev";
 export const TEACHER_PASSWORD = "Madrasa!Teacher2026";
 
 // Stable demo constants mirrored from convex/seed.ts.
