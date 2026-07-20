@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { t } from "@/lib/i18n";
 import {
+  addAccount,
   getDeviceToken,
   getSessionToken,
   setSession,
@@ -88,10 +89,19 @@ export default function CodeLoginPage() {
       }
       const result = await studentFetch("/student/login", body);
       if (result.ok && result.sessionToken) {
-        setSession({
+        addAccount({
+          studentId: result.studentId ?? "",
+          name: result.student
+            ? `${result.student.firstName} ${result.student.lastName}`
+            : "",
           sessionToken: result.sessionToken,
-          deviceToken: result.deviceToken,
         });
+        if (result.deviceToken) {
+          setSession({
+            sessionToken: result.sessionToken,
+            deviceToken: result.deviceToken,
+          });
+        }
         if (result.needsPinSetup) {
           setStep("pinSetup");
           return;
