@@ -189,6 +189,7 @@ http.route({
       sessionToken,
       ...(newDeviceToken !== undefined ? { deviceToken: newDeviceToken } : {}),
       needsPinSetup: !context.hasPin,
+      studentId: context.studentId,
       student: context.student,
     });
   }),

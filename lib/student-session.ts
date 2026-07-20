@@ -41,6 +41,7 @@ export type StudentLoginResponse = {
   needsPinSetup?: boolean;
   needsPin?: boolean;
   error?: string;
+  studentId?: string;
   student?: { firstName: string; lastName: string };
 };
 
