@@ -731,6 +731,74 @@ export const e2eBootstrap = internalMutation({
   },
 });
 
+/**
+ * M16 E2E bootstrap sibling (internal — unreachable from clients): same as
+ * e2eBootstrap, but issues a FRESH access code for a DIFFERENT active enrolled
+ * student of the demo class, so the family-switch spec can log two children in
+ * on one device. Resolves the same class/active-student set as e2eBootstrap,
+ * identifies the student e2eBootstrap would pick, then picks the first active
+ * student whose id differs — the two bootstraps always yield distinct students.
+ *   npx convex run seed:e2eBootstrapSibling '{}'
+ */
+export const e2eBootstrapSibling = internalMutation({
+  args: {},
+  returns: v.object({ code: v.string(), studentName: v.string() }),
+  handler: async (ctx): Promise<{ code: string; studentName: string }> => {
+    await ctx.runMutation(internal.seed.seedDemo, {});
+    await ctx.runMutation(internal.seed.seedTimetable, {});
+    await ctx.runMutation(internal.seed.seedQuestions, {});
+
+    // Resolve demo grade → class exactly as the seeds created them.
+    const gradesAtOrder = await ctx.db
+      .query("grades")
+      .withIndex("by_order", (q) => q.eq("order", DEMO_GRADE_ORDER))
+      .take(10);
+    const grade = gradesAtOrder.find((g) => g.name === DEMO_GRADE_NAME);
+    if (!grade) throw new Error("Demo grade missing after seeding");
+    const classes = await ctx.db
+      .query("classes")
+      .withIndex("by_gradeId", (q) => q.eq("gradeId", grade._id))
+      .take(20);
+    const cls = classes.find((c) => c.name === DEMO_CLASS_NAME);
+    if (!cls) throw new Error("Demo class missing after seeding");
+
+    const enrollments = await ctx.db
+      .query("enrollments")
+      .withIndex("by_classId_and_active", (q) =>
+        q.eq("classId", cls._id).eq("active", true),
+      )
+      .take(200);
+    const activeStudents: Array<Doc<"students">> = [];
+    for (const enrollment of enrollments) {
+      const enrolled = await ctx.db.get("students", enrollment.studentId);
+      if (enrolled && enrolled.status === "active") {
+        activeStudents.push(enrolled);
+      }
+    }
+
+    // Identify the student e2eBootstrap resolves to (canonical demo student, or
+    // the first active one), then pick the first active student that differs.
+    const primary =
+      activeStudents.find(
+        (s) =>
+          s.firstName === DEMO_STUDENTS[0].firstName &&
+          s.lastName === DEMO_STUDENTS[0].lastName,
+      ) ?? activeStudents[0];
+    const sibling = activeStudents.find((s) => s._id !== primary?._id);
+    if (!sibling) {
+      throw new Error(
+        "Demo class needs at least 2 active enrolled students for the sibling bootstrap",
+      );
+    }
+
+    const code = await issueCodeCore(ctx, sibling._id, "system", {
+      actorType: "system",
+      actorId: "system",
+    });
+    return { code, studentName: `${sibling.firstName} ${sibling.lastName}` };
+  },
+});
+
 // ——— M11 demo term (report cards need a term covering the demo data) ———
 
 const CURRENT_TERM_NAME = "الفصل التجريبي الحالي";

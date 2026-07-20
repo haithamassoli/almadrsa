@@ -61,4 +61,10 @@ export const portal = {
 
   // Error codes
   errNotFound: "المحتوى المطلوب غير موجود.",
+
+  // M16 — device-local multi-child account switcher
+  switchStudent: "تبديل الطالب",
+  addStudent: "إضافة طالب آخر",
+  sessionExpiredSwitched: "انتهت جلسة الطالب السابق، تم التبديل إلى حساب آخر",
+  currentStudent: "الطالب الحالي",
 } as const;

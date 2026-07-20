@@ -37,6 +37,30 @@ export function bootstrap(): BootstrapResult {
 }
 
 /**
+ * Like bootstrap(), but seeds a fresh code for a DIFFERENT active student of the
+ * demo class (via seed:e2eBootstrapSibling). The family-switch spec logs both
+ * children in on one device, so it needs two distinct coded students.
+ */
+export function bootstrapSibling(): BootstrapResult {
+  const stdout = execSync("npx convex run seed:e2eBootstrapSibling '{}'", {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+  });
+  const start = stdout.indexOf("{");
+  const end = stdout.lastIndexOf("}");
+  if (start === -1 || end < start) {
+    throw new Error(`Unexpected convex run output:\n${stdout}`);
+  }
+  const parsed = JSON.parse(stdout.slice(start, end + 1)) as BootstrapResult;
+  if (!parsed.code || !parsed.studentName) {
+    throw new Error(
+      `seed:e2eBootstrapSibling returned incomplete data:\n${stdout}`,
+    );
+  }
+  return parsed;
+}
+
+/**
  * A dedicated phone-sized context per actor: the specs drive a teacher and a
  * student side by side without signing each other out (and without touching
  * any session a human may have open in their own browser).

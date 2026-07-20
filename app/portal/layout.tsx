@@ -8,22 +8,36 @@ import {
   Bell,
   BookOpenCheck,
   CalendarCheck,
+  Check,
+  ChevronsUpDown,
   ClipboardList,
   Home,
   LogOut,
   Megaphone,
+  Plus,
 } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { InstallPrompt } from "@/components/install-prompt";
 import { PushSubscribe } from "@/components/push-subscribe";
 import { LogoMark } from "@/components/app-shell/logo-mark";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { ThemeToggle } from "@/components/app-shell/theme-toggle";
 import { t } from "@/lib/i18n";
 import {
-  clearSession,
+  backfillActiveAccount,
+  removeActiveAccount,
   studentFetch,
+  switchAccount,
+  useStudentAccounts,
   useStudentSession,
 } from "@/lib/student-session";
 import { cn } from "@/lib/utils";
@@ -111,6 +125,7 @@ export default function PortalLayout({
 }) {
   const router = useRouter();
   const { sessionToken, ready } = useStudentSession();
+  const accounts = useStudentAccounts();
   const me = useQuery(
     api.studentAuth.me,
     ready && sessionToken ? { sessionToken } : "skip",
@@ -119,10 +134,24 @@ export default function PortalLayout({
   const invalid = ready && (!sessionToken || me === null);
   useEffect(() => {
     if (invalid) {
-      clearSession();
-      router.replace("/code");
+      const next = removeActiveAccount();
+      if (next === null) {
+        router.replace("/code");
+      } else {
+        toast(t("portal.sessionExpiredSwitched"));
+      }
     }
   }, [invalid, router]);
+
+  // Repair migrated/stale switcher entries once the active session resolves.
+  useEffect(() => {
+    if (me) {
+      backfillActiveAccount({
+        studentId: me.student._id,
+        name: `${me.student.firstName} ${me.student.lastName}`,
+      });
+    }
+  }, [me]);
 
   if (!ready || !sessionToken || me === undefined || me === null) {
     return (
@@ -132,28 +161,77 @@ export default function PortalLayout({
     );
   }
 
-  async function signOut() {
-    if (sessionToken) {
-      try {
-        await studentFetch("/student/logout", { sessionToken });
-      } catch {
-        // Session removal is best-effort; local state clears regardless.
-      }
+  function signOut() {
+    // Remove/promote FIRST so the active token becomes the sibling (or /code)
+    // before we revoke the old session. Revoking it while it is still the
+    // active `me` subscription flips `invalid` true and makes the
+    // invalid-session effect remove the account a second time — taking the
+    // promoted sibling with it. Fire the logout after removal, unawaited.
+    const revoked = sessionToken;
+    if (removeActiveAccount() === null) router.replace("/code");
+    if (revoked) {
+      void studentFetch("/student/logout", { sessionToken: revoked }).catch(
+        () => {
+          // Best-effort server-side revocation; local state already cleared.
+        },
+      );
     }
-    clearSession();
-    router.replace("/code");
   }
 
   return (
     <div className="flex flex-1 flex-col">
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur">
         <LogoMark className="size-8" />
-        <div className="flex flex-1 flex-col">
-          <span className="text-sm font-bold">{t("common.appName")}</span>
-          <span className="text-xs text-muted-foreground">
-            {me.student.firstName} {me.student.lastName}
-          </span>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                className="h-auto flex-1 justify-start gap-2 px-2 py-1"
+              />
+            }
+          >
+            <span className="flex min-w-0 flex-col items-start text-start">
+              <span className="text-sm font-bold">{t("common.appName")}</span>
+              <span className="truncate text-xs font-normal text-muted-foreground">
+                {me.student.firstName} {me.student.lastName}
+              </span>
+            </span>
+            <ChevronsUpDown
+              className="size-4 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-52">
+            {accounts.map((account) => {
+              const isActive = account.sessionToken === sessionToken;
+              return (
+                <DropdownMenuItem
+                  key={account.sessionToken}
+                  aria-current={isActive ? "true" : undefined}
+                  onClick={() => switchAccount(account.studentId)}
+                >
+                  {isActive ? (
+                    <>
+                      <Check aria-hidden />
+                      <span className="sr-only">
+                        {t("portal.currentStudent")}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="size-4" aria-hidden />
+                  )}
+                  {account.name || t("portal.switchStudent")}
+                </DropdownMenuItem>
+              );
+            })}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => router.push("/code")}>
+              <Plus aria-hidden />
+              {t("portal.addStudent")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <ThemeToggle />
         <Button
           variant="ghost"
