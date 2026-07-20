@@ -66,4 +66,5 @@ export const portal = {
   switchStudent: "تبديل الطالب",
   addStudent: "إضافة طالب آخر",
   sessionExpiredSwitched: "انتهت جلسة الطالب السابق، تم التبديل إلى حساب آخر",
+  currentStudent: "الطالب الحالي",
 } as const;

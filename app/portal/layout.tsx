@@ -161,15 +161,21 @@ export default function PortalLayout({
     );
   }
 
-  async function signOut() {
-    if (sessionToken) {
-      try {
-        await studentFetch("/student/logout", { sessionToken });
-      } catch {
-        // Session removal is best-effort; local state clears regardless.
-      }
-    }
+  function signOut() {
+    // Remove/promote FIRST so the active token becomes the sibling (or /code)
+    // before we revoke the old session. Revoking it while it is still the
+    // active `me` subscription flips `invalid` true and makes the
+    // invalid-session effect remove the account a second time — taking the
+    // promoted sibling with it. Fire the logout after removal, unawaited.
+    const revoked = sessionToken;
     if (removeActiveAccount() === null) router.replace("/code");
+    if (revoked) {
+      void studentFetch("/student/logout", { sessionToken: revoked }).catch(
+        () => {
+          // Best-effort server-side revocation; local state already cleared.
+        },
+      );
+    }
   }
 
   return (
@@ -197,19 +203,28 @@ export default function PortalLayout({
             />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="min-w-52">
-            {accounts.map((account) => (
-              <DropdownMenuItem
-                key={account.sessionToken}
-                onClick={() => switchAccount(account.studentId)}
-              >
-                {account.sessionToken === sessionToken ? (
-                  <Check aria-hidden />
-                ) : (
-                  <span className="size-4" aria-hidden />
-                )}
-                {account.name || t("portal.switchStudent")}
-              </DropdownMenuItem>
-            ))}
+            {accounts.map((account) => {
+              const isActive = account.sessionToken === sessionToken;
+              return (
+                <DropdownMenuItem
+                  key={account.sessionToken}
+                  aria-current={isActive ? "true" : undefined}
+                  onClick={() => switchAccount(account.studentId)}
+                >
+                  {isActive ? (
+                    <>
+                      <Check aria-hidden />
+                      <span className="sr-only">
+                        {t("portal.currentStudent")}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="size-4" aria-hidden />
+                  )}
+                  {account.name || t("portal.switchStudent")}
+                </DropdownMenuItem>
+              );
+            })}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => router.push("/code")}>
               <Plus aria-hidden />
